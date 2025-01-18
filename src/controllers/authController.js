@@ -2,6 +2,7 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const { Op } = require('sequelize');
 
 // Sign Up
 exports.signup = async (req, res) => {
@@ -45,22 +46,70 @@ exports.signup = async (req, res) => {
         res.status(500).json({ error: 'Internal server error.', details: err.message });
     }
 };
+exports.login = async (req, res) => {
+    try {
+        const { username, password } = req.body;
+
+        // Validate input
+        if (!username || !password) {
+            return res.status(400).json({ error: 'Username and password are required.' });
+        }
+
+        // Check if user exists
+        const user = await User.findOne({ where: { username } });
+        if (!user) {
+            return res.status(404).json({ error: 'User not found.' });
+        }
+
+        // Compare passwords
+        const isPasswordValid = await bcrypt.compare(password, user.password);
+        if (!isPasswordValid) {
+            return res.status(401).json({ error: 'Invalid username or password.' });
+        }
+
+        // Generate JWT
+        const token = jwt.sign(
+            { id: user.id, username: user.username },
+            process.env.JWT_SECRET,
+            { expiresIn: '1h' }
+        );
+
+        res.status(200).json({
+            message: 'Login successful.',
+            token,
+            user: {
+                id: user.id,
+                name: user.name,
+                email: user.email,
+                phone_number: user.phone_number,
+                username: user.username,
+            },
+        });
+    } catch (err) {
+        res.status(500).json({ error: 'Internal server error.', details: err.message });
+    }
+};
 // Verify OTP
 exports.verifyOtp = async (req, res) => {
     try {
-        const { username, otp } = req.body;
-        
+        const { usernameOrPhone, otp } = req.body;
+
         // Validate input
-        if (!username || !otp) {
-            return res.status(400).json({ message: 'Username and OTP are required.' });
+        if (!usernameOrPhone || !otp) {
+            return res.status(400).json({ message: 'Username or Phone Number and OTP are required.' });
         }
 
-        const user = await User.findOne({ where: { username } });
+        // Query the database, checking both username and phone_number fields
+        const user = await User.findOne({
+            where: {
+                [Op.or]: [{ username: usernameOrPhone }, { phone_number: usernameOrPhone }]
+            }
+        });
 
-        // Check if user exists and OTP matches
+        // Check if the user exists and OTP matches
         if (user && user.otp === otp) {
-            user.otp = null; // Clear OTP after verification
-            await user.save();
+          //  user.otp = null; // Clear OTP after verification
+         //   await user.save();
             res.json({ message: 'OTP verified successfully.' });
         } else {
             res.status(400).json({ message: 'Invalid OTP.' });
@@ -71,13 +120,14 @@ exports.verifyOtp = async (req, res) => {
 };
 
 
+
 // Forgot Password
 exports.forgotPassword = async (req, res) => {
     try {
         const { email, phone_number } = req.body;
         const user = await User.findOne({ where: { [Op.or]: [{ email }, { phone_number }] } });
         if (user) {
-            user.otp = '1234'; // Static OTP for now
+            user.otp = '1234'; // Static OT P for now
             await user.save();
             res.json({ message: 'OTP sent for password reset.' });
         } else {
@@ -91,16 +141,38 @@ exports.forgotPassword = async (req, res) => {
 // Change Password
 exports.changePassword = async (req, res) => {
     try {
-        const { username, newPassword } = req.body;
-        const user = await User.findOne({ where: { username } });
-        if (user) {
-            user.password = await bcrypt.hash(newPassword, 10);
-            await user.save();
-            res.json({ message: 'Password changed successfully.' });
-        } else {
-            res.status(404).json({ message: 'User not found.' });
+        const { oldPassword, newPassword } = req.body;
+
+        // Check if token exists
+        const token = req.headers.authorization?.split(' ')[1];
+        if (!token) {
+            return res.status(401).json({ error: 'No token provided.' });
         }
+
+        // Verify token
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        const user = await User.findByPk(decoded.id);
+
+        if (!user) {
+            return res.status(404).json({ error: 'User not found.' });
+        }
+
+        // Validate old password
+        const isPasswordValid = await bcrypt.compare(oldPassword, user.password);
+        if (!isPasswordValid) {
+            return res.status(400).json({ error: 'Old password is incorrect.' });
+        }
+
+        // Hash and update new password
+        const hashedNewPassword = await bcrypt.hash(newPassword, 10);
+        user.password = hashedNewPassword;
+        await user.save();
+
+        res.status(200).json({ message: 'Password updated successfully.' });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        if (err.name === 'JsonWebTokenError') {
+            return res.status(401).json({ error: 'Invalid token.' });
+        }
+        res.status(500).json({ error: 'Internal server error.', details: err.message });
     }
 };
