@@ -3,6 +3,7 @@ const dotenv = require('dotenv');
 const authRoutes = require('./routes/authRoutes');
 const apiRoutes = require('./routes/subjectRoutes');
 const catalogueRoutes = require('./routes/catalogueRoutes');
+const worksheetRoutes = require('./routes/worksheetRoutes');
 
 dotenv.config();
 
@@ -13,8 +14,7 @@ app.use(express.json());
 app.use('/auth', authRoutes);
 app.use('/api', apiRoutes);
 app.use('/catalogue', catalogueRoutes);
-
-
+app.use('/worksheets', worksheetRoutes);
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
     console.log(`Server is running on http://localhost:${PORT}`);

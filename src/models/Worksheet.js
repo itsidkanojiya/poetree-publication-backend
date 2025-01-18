@@ -1,26 +1,29 @@
-// Model: catalogueModel.js
+ 
 const { DataTypes } = require('sequelize');
 const sequelize = require('../config/db');
 
 
-const Catalogue = sequelize.define('Catalogue', {
-    catalogue_id: {
+const Worksheet = sequelize.define('Worksheet', {
+    worksheet_id: {
         type: DataTypes.INTEGER,
         primaryKey: true,
         autoIncrement: true,
     },
-    catalogue_name: {
+    subject_id: {
+        type: DataTypes.INTEGER,
+        allowNull: false,
+    },
+    worksheet_url: {
         type: DataTypes.STRING,
         allowNull: false,
     },
-    catalogue_image_url: {
+    worksheet_logo: {
         type: DataTypes.STRING,
         allowNull: false,
     },
-    catalogue_pdf_link: {
-        type: DataTypes.STRING,
-        allowNull: false,
-    },
+}, {
+    tableName: 'worksheets',
+    timestamps: true, // Disable timestamps if not needed
 });
 
-module.exports = Catalogue
+module.exports = Worksheet;
