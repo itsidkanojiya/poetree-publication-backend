@@ -23,16 +23,6 @@ exports.addSubjectTitle = async (req, res) => {
         res.status(400).json({ error: err.message });
     }
 };
-exports.addClass = async (req, res) => {
-    try {
-        const { class_level, subject_title_id } = req.body;
-        const classData = await Class.create({ class_level, subject_title_id });
-        res.status(201).json({ message: 'Class added successfully', classData });
-    } catch (err) {
-        res.status(400).json({ error: err.message });
-    }
-};
-
 
 // Edit Subject
 exports.editSubject = async (req, res) => {
@@ -62,19 +52,7 @@ exports.editSubjectTitle = async (req, res) => {
     }
 };
 
-// Edit Class
-exports.editClass = async (req, res) => {
-    try {
-        const { id } = req.params;
-        const { class_level } = req.body;
-        const classItem = await Class.findByPk(id);
-        if (!classItem) return res.status(404).json({ message: 'Class not found' });
-        await classItem.update({ class_level });
-        res.status(200).json({ message: 'Class updated successfully', classItem });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-};
+
 
 // Delete Subject
 exports.deleteSubject = async (req, res) => {
@@ -102,19 +80,6 @@ exports.deleteSubjectTitle = async (req, res) => {
     }
 };
 
-// Delete Class
-exports.deleteClass = async (req, res) => {
-    try {
-        const { id } = req.params;
-        const classItem = await Class.findByPk(id);
-        if (!classItem) return res.status(404).json({ message: 'Class not found' });
-        await classItem.destroy();
-        res.status(200).json({ message: 'Class deleted successfully' });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-};
-
 exports.getAllSubjects = async (req, res) => {
     try {
         const subjects = await Subject.findAll({
@@ -128,5 +93,45 @@ exports.getAllSubjects = async (req, res) => {
         res.status(200).json(subjects);
     } catch (err) {
         res.status(400).json({ error: err.message });
+    }
+};
+
+exports.getSubjectTitlesBySubjectId = async (req, res) => {
+    try {
+        const { subject_id } = req.params;
+
+        // Find subject and associated titles
+        const subjectTitles = await SubjectTitle.findAll({
+            where: { subject_id },
+            include: {
+                model: Class,
+            },
+        });
+
+        if (!subjectTitles.length) {
+            return res.status(404).json({ message: 'No subject titles found for the given subject' });
+        }
+
+        res.status(200).json(subjectTitles);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+};
+exports.getClassesBySubjectTitleId = async (req, res) => {
+    try {
+        const { subject_title_id } = req.params;
+
+        // Find classes for the given subject title
+        const classes = await Class.findAll({
+            where: { subject_title_id },
+        });
+
+        if (!classes.length) {
+            return res.status(404).json({ message: 'No classes found for the given subject title' });
+        }
+
+        res.status(200).json(classes);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
     }
 };
