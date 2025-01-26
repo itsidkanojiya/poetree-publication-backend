@@ -14,7 +14,7 @@ const Worksheet = sequelize.define('Worksheet', {
         allowNull: false,
     },
     worksheet_url: {
-        type: DataTypes.STRING,
+        type: DataTypes.STRING, 
         allowNull: false,
     },
     worksheet_logo: {

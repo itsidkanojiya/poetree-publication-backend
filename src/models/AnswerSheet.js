@@ -8,7 +8,7 @@ const AnswerSheet = sequelize.define('AnswerSheet', {
     answer_sheet_url: { type: DataTypes.STRING, allowNull: false },
     answer_sheet_logo: { type: DataTypes.STRING, allowNull: true },
 }, {
-    timestamps: true,
+    timestamps: true,  
 });
 
 module.exports = AnswerSheet;

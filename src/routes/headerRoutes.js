@@ -1,23 +1,15 @@
- 
 const express = require('express');
 const router = express.Router();
 const {
     addHeader,
     editHeader,
-    getHeaders,
     deleteHeader,
+    getHeadersByUserId,
 } = require('../controllers/headerController');
 
-// Add Header
 router.post('/add', addHeader);
-
-// Edit Header
 router.put('/edit/:id', editHeader);
-
-// Get All Headers
-router.get('/all', getHeaders);
-
-// Delete Header
 router.delete('/delete/:id', deleteHeader);
+router.get('/user/:user_id', getHeadersByUserId);
 
 module.exports = router;
