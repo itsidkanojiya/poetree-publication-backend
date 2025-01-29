@@ -8,11 +8,15 @@ const worksheetRoutes = require('./routes/worksheetRoutes');
 const answerSheetRoutes = require('./routes/answerSheetRoutes');
 const headerRoutes = require('./routes/headerRoutes');
 dotenv.config();
+const cors = require('cors');
 
 const app = express();
 app.use(express.json());
 app.use(cors());
+<<<<<<< HEAD
 
+=======
+>>>>>>> bebaa6ec038ec9466e76b3d8858271412dbf734c
 // Use the auth routes
 app.use('/auth', authRoutes);
 app.use('/api', subjectRoutes);
