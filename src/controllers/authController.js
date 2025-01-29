@@ -76,48 +76,54 @@ exports.signup = async (req, res) => {
 
 exports.login = async (req, res) => {
     try {
-        const { username, password } = req.body;
-
-        // Validate input
-        if (!username || !password) {
-            return res.status(400).json({ error: 'Username and password are required.' });
-        }
-
-        // Check if user exists
-        const user = await User.findOne({ where: { username } });
-        if (!user) {
-            return res.status(404).json({ error: 'User not found.' });
-        }
-
-        // Compare passwords
-        const isPasswordValid = await bcrypt.compare(password, user.password);
-        if (!isPasswordValid) {
-            return res.status(401).json({ error: 'Invalid username or password.' });
-        }
-
-        // Generate JWT
-        const token = jwt.sign(
-            { id: user.id, username: user.username, user_type: user.user_type },
-            process.env.JWT_SECRET,
-            { expiresIn: '1h' } // Token expiration time
-        );
-
-        res.status(200).json({
-            message: 'Login successful.',
-            token,
-            user: {
-                id: user.id,
-                name: user.name,
-                email: user.email,
-                phone_number: user.phone_number,
-                username: user.username,
-                user_type: user.user_type,
-            },
-        });
+      const { username, password } = req.body;
+  
+      // Validate input
+      if (!username || !password) {
+        return res.status(400).json({ error: 'Username and password are required.' });
+      }
+  
+      // Check if user exists
+      const user = await User.findOne({ where: { username } });
+      if (!user) {
+        return res.status(404).json({ error: 'User not found.' });
+      }
+  
+      // Compare passwords
+      const isPasswordValid = await bcrypt.compare(password, user.password);
+      if (!isPasswordValid) {
+        return res.status(401).json({ error: 'Invalid username or password.' });
+      }
+  
+      // Generate JWT
+      const payload = {
+        id: user.id,
+        username: user.username,
+        user_type: user.user_type,
+      };
+  
+      const token = jwt.sign(payload, process.env.JWT_SECRET || 'default_secret', {
+        expiresIn: '1h',
+      });
+  
+      // Response with token and user details
+      res.status(200).json({
+        message: 'Login successful',
+        token,
+        user: {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          phone_number: user.phone_number,
+          username: user.username,
+          user_type: user.user_type,
+        },
+      });
+  
     } catch (err) {
-        res.status(500).json({ error: 'Internal server error.', details: err.message });
+      res.status(500).json({ error: 'Internal server error', details: err.message });
     }
-};
+  };
 // Verify OTP
 exports.verifyOtp = async (req, res) => {
     try {
@@ -204,4 +210,30 @@ exports.changePassword = async (req, res) => {
         }
         res.status(500).json({ error: 'Internal server error.', details: err.message });
     }
+};
+
+
+exports.verifyToken = (req, res) => {
+  try {
+    const token = req.headers['authorization'];
+
+    if (!token) {
+      return res.status(401).json({ error: 'Access denied. No token provided.' });
+    }
+
+    const formattedToken = token.startsWith('Bearer ') ? token.slice(7) : token;
+
+    jwt.verify(formattedToken, process.env.JWT_SECRET || 'default_secret', (err, decoded) => {
+      if (err) {
+        return res.status(401).json({ error: 'Invalid token.' });
+      }
+
+      res.status(200).json({
+        message: 'Token verified successfully.',
+        user: decoded, // Returns user payload from the token
+      });
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Internal server error.', details: err.message });
+  }
 };
