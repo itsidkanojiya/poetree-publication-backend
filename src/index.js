@@ -7,10 +7,11 @@ const worksheetRoutes = require('./routes/worksheetRoutes');
 const answerSheetRoutes = require('./routes/answerSheetRoutes');
 const headerRoutes = require('./routes/headerRoutes');
 dotenv.config();
+const cors = require('cors');
 
 const app = express();
 app.use(express.json());
-
+app.use(cors());
 // Use the auth routes
 app.use('/auth', authRoutes);
 app.use('/api', subjectRoutes);

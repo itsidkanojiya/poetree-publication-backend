@@ -24,14 +24,14 @@ module.exports = {
 
 module.exports = {
     up: async (queryInterface, Sequelize) => {
-        await queryInterface.addColumn('Users', 'role', {
+        await queryInterface.addColumn('Users', 'user_type', {
             type: Sequelize.STRING,
             allowNull: false,
-            defaultValue: 'user', // Default role
+            defaultValue: 'user', // Default user_type
         });
     },
 
     down: async (queryInterface, Sequelize) => {
-        await queryInterface.removeColumn('Users', 'role');
+        await queryInterface.removeColumn('Users', 'user_type');
     }
 };

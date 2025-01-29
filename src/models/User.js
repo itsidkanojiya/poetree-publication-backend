@@ -1,7 +1,13 @@
 const { DataTypes } = require('sequelize');
 const sequelize = require('../config/db');
 
-const User = sequelize.define('User', {
+// Define the User model
+const User = sequelize.define('users', {
+    id: {
+        type: DataTypes.BIGINT,
+        primaryKey: true,
+        autoIncrement: true,
+    },
     name: {
         type: DataTypes.STRING,
         allowNull: false,
@@ -10,6 +16,9 @@ const User = sequelize.define('User', {
         type: DataTypes.STRING,
         unique: true,
         allowNull: false,
+        validate: {
+            isEmail: true,
+        },
     },
     phone_number: {
         type: DataTypes.STRING,
@@ -25,40 +34,51 @@ const User = sequelize.define('User', {
         type: DataTypes.STRING,
         allowNull: false,
     },
-    role: {
+    user_type: {
         type: DataTypes.STRING,
         allowNull: false,
-        defaultValue: 'user', // Default role is 'user'
+        defaultValue: 'user', // Default user_type is 'user'
     },
     school_name: {
         type: DataTypes.STRING,
+        allowNull: true,
     },
     school_address_state: {
         type: DataTypes.STRING,
+        allowNull: true,
     },
     school_address_pincode: {
         type: DataTypes.STRING,
+        allowNull: true,
     },
     school_address_city: {
         type: DataTypes.STRING,
+        allowNull: true,
     },
     school_principal_name: {
         type: DataTypes.STRING,
+        allowNull: true,
     },
     subject: {
         type: DataTypes.STRING,
+        allowNull: true,
     },
     subject_title: {
         type: DataTypes.STRING,
+        allowNull: true,
     },
-    standard: {
-        type: DataTypes.STRING,
+    class: {
+        type: DataTypes.JSON,
+        allowNull: true,
+        defaultValue: [],
     },
     otp: {
         type: DataTypes.STRING,
+        allowNull: true,
     },
 }, {
-    timestamps: true,
+    timestamps: true, // Automatically adds createdAt and updatedAt fields
+    underscored: true, // Converts camelCase to snake_case for DB fields
 });
 
 module.exports = User;

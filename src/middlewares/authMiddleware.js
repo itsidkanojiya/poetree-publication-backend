@@ -7,7 +7,7 @@ exports.verifyAdmin = (req, res, next) => {
 
     try {
         const verified = jwt.verify(token, process.env.JWT_SECRET);
-        if (verified.role !== 'admin') {
+        if (verified.user_type !== 'admin') {
             return res.status(403).json({ message: 'Admin access required' });
         }
         req.user = verified;

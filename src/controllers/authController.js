@@ -7,45 +7,73 @@ const { Op } = require('sequelize');
 // Sign Up
 exports.signup = async (req, res) => {
     try {
-        const { name, email, phone_number, username, password } = req.body;
-
-        // Validate required fields
-        if (!name || !email || !phone_number || !username || !password) {
-            return res.status(400).json({ error: 'All fields are required.' });
-        }
+        const {
+            name,
+            email,
+            phone_number,
+            username,
+            password,
+            user_type,
+            school_name,
+            school_address_state,
+            school_address_pincode,
+            school_address_city,
+            school_principal_name,
+            subject,
+            subject_title,
+            class: userClasses, // Accept class array
+        } = req.body;
 
         // Check if email or username already exists
-        const existingUser = await User.findOne({ where: { email } });
-        const existingUsername = await User.findOne({ where: { username } });
+        const existingUser = await User.findOne({
+            where: { [Op.or]: [{ email }, { username }] }, // Use Op for Sequelize operators
+        });
 
         if (existingUser) {
-            return res.status(400).json({ error: 'Email already in use.' });
-        }
-        if (existingUsername) {
-            return res.status(400).json({ error: 'Username already in use.' });
+            return res.status(400).json({ message: 'Email or Username already exists.' });
         }
 
-        // Hash the password
+        // Hash password
         const hashedPassword = await bcrypt.hash(password, 10);
 
-        // Static OTP for now
+        // Default OTP
         const otp = '1234';
 
-        // Create a new user
-        const user = await User.create({
+        // Create user
+        const newUser = await User.create({
             name,
             email,
             phone_number,
             username,
             password: hashedPassword,
+            user_type: user_type || 'user',
+            school_name,
+            school_address_state,
+            school_address_pincode,
+            school_address_city,
+            school_principal_name,
+            subject,
+            subject_title,
+            class: userClasses, // Save class array
             otp,
         });
 
-        res.status(201).json({ message: 'User created successfully. Please verify OTP.', userId: user.id });
-    } catch (err) {
-        res.status(500).json({ error: 'Internal server error.', details: err.message });
+        res.status(201).json({
+            message: 'OTP Sent successfully.',
+            user: {
+                id: newUser.id,
+                name: newUser.name,
+                email: newUser.email,
+                username: newUser.username,
+            },
+        });
+    } catch (error) {
+        console.error('Error registering user:', error);
+        res.status(500).json({ message: 'Internal server error.' });
     }
 };
+
+
 exports.login = async (req, res) => {
     try {
         const { username, password } = req.body;
@@ -69,9 +97,9 @@ exports.login = async (req, res) => {
 
         // Generate JWT
         const token = jwt.sign(
-            { id: user.id, username: user.username },
+            { id: user.id, username: user.username, user_type: user.user_type },
             process.env.JWT_SECRET,
-            { expiresIn: '1h' }
+            { expiresIn: '1h' } // Token expiration time
         );
 
         res.status(200).json({
@@ -83,6 +111,7 @@ exports.login = async (req, res) => {
                 email: user.email,
                 phone_number: user.phone_number,
                 username: user.username,
+                user_type: user.user_type,
             },
         });
     } catch (err) {
