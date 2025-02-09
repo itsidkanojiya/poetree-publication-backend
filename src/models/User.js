@@ -72,6 +72,16 @@ const User = sequelize.define('users', {
         allowNull: true,
         defaultValue: [],
     },
+    is_verified: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+        defaultValue: 0,
+    },
+    is_number_verified: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+        defaultValue: 0,
+    },
     otp: {
         type: DataTypes.STRING,
         allowNull: true,

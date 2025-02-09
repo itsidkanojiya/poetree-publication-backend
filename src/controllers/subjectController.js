@@ -1,4 +1,4 @@
-const { Subject, SubjectTitle } = require('../models/Subjects');
+const { Subject, SubjectTitle ,Boards} = require('../models/Subjects');
 
 // Add Subject
 exports.addSubject = async (req, res) => {
@@ -135,5 +135,23 @@ exports.deleteSubjectTitle = async (req, res) => {
         res.status(200).json({ message: 'Subject title deleted successfully' });
     } catch (err) {
         res.status(500).json({ error: err.message });
+    }
+};
+// Add Boards
+exports.addBoard = async (req, res) => {
+    try {
+        const { board_name } = req.body; // Accept classes as an array
+        const board = await Boards.create({ board_name });
+        res.status(201).json({ message: 'Board added successfully', board });
+    } catch (err) {
+        res.status(400).json({ error: err.message });
+    }
+};
+exports.getAllBoards = async (req, res) => {
+    try {
+        const boards = await Boards.findAll(); // No need to include itself
+        res.status(200).json(boards);
+    } catch (err) {
+        res.status(400).json({ error: err.message });
     }
 };

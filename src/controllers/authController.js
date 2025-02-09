@@ -13,7 +13,6 @@ exports.signup = async (req, res) => {
             phone_number,
             username,
             password,
-            user_type,
             school_name,
             school_address_state,
             school_address_pincode,
@@ -46,7 +45,7 @@ exports.signup = async (req, res) => {
             phone_number,
             username,
             password: hashedPassword,
-            user_type: user_type || 'user',
+            user_type: 'user',
             school_name,
             school_address_state,
             school_address_pincode,
@@ -89,7 +88,7 @@ exports.login = async (req, res) => {
         return res.status(404).json({ error: 'User not found.' });
       }
   
-      // Compare passwords
+      // Compare passssswords
       const isPasswordValid = await bcrypt.compare(password, user.password);
       if (!isPasswordValid) {
         return res.status(401).json({ error: 'Invalid username or password.' });

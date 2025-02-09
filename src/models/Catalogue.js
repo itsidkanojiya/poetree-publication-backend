@@ -3,7 +3,7 @@ const { DataTypes } = require('sequelize');
 const sequelize = require('../config/db');
 
 
-const Catalogue = sequelize.define('Catalogue', {
+const Catalogue = sequelize.define('catalogues', {
     catalogue_id: {
         type: DataTypes.INTEGER,
         primaryKey: true,

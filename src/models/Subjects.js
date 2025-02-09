@@ -48,9 +48,26 @@ const SubjectTitle = sequelize.define('SubjectTitle', {
     tableName: 'subject_titles',
     timestamps: false,
 });
+// SubjectTitle Model
+const Boards = sequelize.define('boards', {
+    board_id: {
+        type: DataTypes.INTEGER,
+        primaryKey: true,
+        autoIncrement: true,
+    },
+    board_name: {
+        type: DataTypes.STRING,
+        allowNull: false,
+    },
+    
+},
+ {
+    tableName: 'boards',
+    timestamps: false,
+});
 
 // Associations
 Subject.hasMany(SubjectTitle, { foreignKey: 'subject_id', onDelete: 'CASCADE' });
 SubjectTitle.belongsTo(Subject, { foreignKey: 'subject_id' });
 
-module.exports = { Subject, SubjectTitle };
+module.exports = { Subject, SubjectTitle, Boards};
