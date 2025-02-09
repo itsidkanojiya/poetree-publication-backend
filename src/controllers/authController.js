@@ -212,7 +212,7 @@ exports.changePassword = async (req, res) => {
 };
 
 
-exports.verifyToken = (req, res) => {
+exports.verifyToken = async (req, res) => {
   try {
     const token = req.headers['authorization'];
 
@@ -222,14 +222,24 @@ exports.verifyToken = (req, res) => {
 
     const formattedToken = token.startsWith('Bearer ') ? token.slice(7) : token;
 
-    jwt.verify(formattedToken, process.env.JWT_SECRET || 'default_secret', (err, decoded) => {
+    jwt.verify(formattedToken, process.env.JWT_SECRET || 'default_secret', async (err, decoded) => {
       if (err) {
         return res.status(401).json({ error: 'Invalid token.' });
       }
 
+      // Fetch full user details from the database using decoded ID
+      const user = await User.findOne({
+        where: { id: decoded.id }, // Assuming your User model has an 'id' field
+        attributes: { exclude: ['password'] }, // Exclude password for security
+      });
+
+      if (!user) {
+        return res.status(404).json({ error: 'User not found.' });
+      }
+
       res.status(200).json({
         message: 'Token verified successfully.',
-        user: decoded, // Returns user payload from the token
+        user,
       });
     });
   } catch (err) {
