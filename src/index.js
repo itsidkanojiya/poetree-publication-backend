@@ -8,6 +8,7 @@ const worksheetRoutes = require('./routes/worksheetRoutes');
 const answerSheetRoutes = require('./routes/answerSheetRoutes');
 const headerRoutes = require('./routes/headerRoutes');
 const adminRoutes = require('./routes/adminRoutes');
+const questionRoutes = require('./routes/questionRoutes');
 dotenv.config();
 
 const app = express();
@@ -22,6 +23,7 @@ app.use('/worksheets', worksheetRoutes);
 app.use('/answersheets', answerSheetRoutes);
 app.use('/headers', headerRoutes);
 app.use('/admin',adminRoutes );
+app.use('/question',questionRoutes );
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
     console.log(`Server is running on http://localhost:${PORT}`);
