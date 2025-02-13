@@ -14,7 +14,7 @@ const Worksheet = sequelize.define('worksheet', {
         allowNull: false,
     }, 
     subject_title_id: { type: DataTypes.INTEGER, allowNull: false },
-    class: { type: DataTypes.INTEGER, allowNull: false },
+    std: { type: DataTypes.INTEGER, allowNull: false },
     board_id: { type: DataTypes.INTEGER, allowNull: false },
     worksheet_url: {
         type: DataTypes.STRING, 

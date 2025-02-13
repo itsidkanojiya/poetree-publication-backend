@@ -13,8 +13,8 @@ SubjectTitle.hasMany(Worksheet, { foreignKey: 'board_id' });
 // Add Worksheet      
 exports.addWorksheet = async (req, res) => {
     try {
-        const { subject_id, worksheet_url, worksheet_logo } = req.body;
-        const worksheet = await Worksheet.create({ subject_id, worksheet_url, worksheet_logo });
+        const { subject_id, worksheet_url, worksheet_logo,board_id,subject_title_id,std } = req.body;
+        const worksheet = await Worksheet.create({ subject_id, worksheet_url, worksheet_logo ,subject_title_id,board_id,std});
         res.status(201).json({ message: 'Worksheet added successfully', worksheet });
     } catch (err) {
         res.status(400).json({ error: err.message });
