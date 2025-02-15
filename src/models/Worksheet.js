@@ -1,7 +1,5 @@
- 
 const { DataTypes } = require('sequelize');
 const sequelize = require('../config/db');
-
 
 const Worksheet = sequelize.define('worksheet', {
     worksheet_id: {
@@ -14,7 +12,11 @@ const Worksheet = sequelize.define('worksheet', {
         allowNull: false,
     }, 
     subject_title_id: { type: DataTypes.INTEGER, allowNull: false },
-    std: { type: DataTypes.INTEGER, allowNull: false },
+    class: { 
+        type: DataTypes.INTEGER, 
+        allowNull: false, 
+        field: 'class' // Maps to 'class' column in the database
+    },
     board_id: { type: DataTypes.INTEGER, allowNull: false },
     worksheet_url: {
         type: DataTypes.STRING, 
@@ -26,7 +28,7 @@ const Worksheet = sequelize.define('worksheet', {
     },
 }, {
     tableName: 'worksheets',
-    timestamps: true, // Disable timestamps if not needed
+    timestamps: true,
 });
 
 module.exports = Worksheet;

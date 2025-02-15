@@ -10,10 +10,15 @@ const headerRoutes = require('./routes/headerRoutes');
 const adminRoutes = require('./routes/adminRoutes');
 const questionRoutes = require('./routes/questionRoutes');
 dotenv.config();
+const path = require('path');
 
 const app = express();
 app.use(express.json());
 app.use(cors());
+
+app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+
+console.log('Serving static files from:', path.join(__dirname, '../uploads'));
 
 // Use the auth routes
 app.use('/auth', authRoutes);

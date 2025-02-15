@@ -9,6 +9,6 @@ const router = express.Router();
 router.post('/add', upload.single('image'), addQuestion);
 router.put('/edit/:id',authMiddleware.verifyAdmin, editQuestion);
 router.delete('/delete/:id',authMiddleware.verifyAdmin, deleteQuestion);
-router.get('/all', getAllQuestions);
+router.get('/', getAllQuestions);
 
 module.exports = router;

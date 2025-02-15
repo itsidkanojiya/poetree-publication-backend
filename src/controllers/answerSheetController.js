@@ -12,9 +12,18 @@ SubjectTitle.hasMany(AnswerSheet, { foreignKey: 'board_id' });
 // Add Answer Sheet
 exports.addAnswerSheet = async (req, res) => {
     try {
-        const { subject_id, answer_sheet_url, answer_sheet_logo } = req.body;
-        const answerSheet = await AnswerSheet.create({ subject_id, answer_sheet_url, answer_sheet_logo });
-        res.status(201).json({ message: 'Answer sheet added successfully', answerSheet });
+        const { subject_id, worksheet_url, worksheet_logo, board_id, subject_title_id, class: classLevel } = req.body;
+
+        const answersheet = await AnswerSheet.create({
+            subject_id,
+            worksheet_url,
+            worksheet_logo,
+            subject_title_id,
+            board_id,
+            class: classLevel, // Maps to 'class' column in DB
+        });
+
+        res.status(201).json({ message: 'AnswerSheet added successfully', answersheet });
     } catch (err) {
         res.status(400).json({ error: err.message });
     }
