@@ -43,7 +43,10 @@ const Question = sequelize.define('questions', {
   options: {
     type: DataTypes.TEXT,
     allowNull: true,
-  },
+  },image_url: {
+    type: DataTypes.STRING,  // Make sure this field exists
+    allowNull: true
+}
 }, {
   tableName: 'questions',
   timestamps: false,
