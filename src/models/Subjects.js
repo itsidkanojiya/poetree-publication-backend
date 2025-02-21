@@ -12,8 +12,8 @@ const Subject = sequelize.define('Subject', {
         type: DataTypes.STRING,
         allowNull: false,
     },
-    classes: {
-        type: DataTypes.JSON, // Store array of classes
+    standard: {
+        type: DataTypes.JSON, // Store array of standard
         allowNull: false,
     },
 }, {
@@ -40,8 +40,8 @@ const SubjectTitle = sequelize.define('SubjectTitle', {
             key: 'subject_id',
         },
     },
-    classes: {
-        type: DataTypes.JSON, // Store array of classes
+    standard: {
+        type: DataTypes.JSON, // Store array of standard
         allowNull: false,
     },
 }, {

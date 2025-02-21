@@ -13,7 +13,7 @@ SubjectTitle.hasMany(Worksheet, { foreignKey: 'board_id' });
 // Add Worksheet      
 exports.addWorksheet = async (req, res) => {
     try {
-        const { subject_id, worksheet_url, worksheet_logo, board_id, subject_title_id, class: classLevel } = req.body;
+        const { subject_id, worksheet_url, worksheet_logo, board_id, subject_title_id, standard: standardLevel } = req.body;
 
         const worksheet = await Worksheet.create({
             subject_id,
@@ -21,7 +21,7 @@ exports.addWorksheet = async (req, res) => {
             worksheet_logo,
             subject_title_id,
             board_id,
-            class: classLevel, // Maps to 'class' column in DB
+            standard: standardLevel, // Maps to 'standard' column in DB
         });
 
         res.status(201).json({ message: 'Worksheet added successfully', worksheet });
@@ -36,7 +36,7 @@ exports.getWorksheets = async (req, res) => {
     
     try {
         const workSheets = await Worksheet.findAll({
-            attributes: ['worksheet_id', 'class', 'worksheet_url', 'worksheet_logo', 'createdAt', 'updatedAt'],
+            attributes: ['worksheet_id', 'standard', 'worksheet_url', 'worksheet_logo', 'createdAt', 'updatedAt'],
             include: [
                 {
                     model: Subject,

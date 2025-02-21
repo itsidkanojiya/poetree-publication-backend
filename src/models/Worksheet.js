@@ -12,10 +12,10 @@ const Worksheet = sequelize.define('worksheet', {
         allowNull: false,
     }, 
     subject_title_id: { type: DataTypes.INTEGER, allowNull: false },
-    class: { 
+    standard: { 
         type: DataTypes.INTEGER, 
         allowNull: false, 
-        field: 'class' // Maps to 'class' column in the database
+        field: 'standard' // Maps to 'standard' column in the database
     },
     board_id: { type: DataTypes.INTEGER, allowNull: false },
     worksheet_url: {
