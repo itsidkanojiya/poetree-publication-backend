@@ -16,7 +16,7 @@ const Question = sequelize.define('questions', {
     type: DataTypes.INTEGER,
     allowNull: false,
   },
-  class: {
+  standard: {
     type: DataTypes.INTEGER,
     allowNull: false,
   },

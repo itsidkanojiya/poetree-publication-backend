@@ -11,9 +11,9 @@ SubjectTitle.hasMany(Question, { foreignKey: 'board_id' });
 // Add a new question
 exports.addQuestion = async (req, res) => {
     try {
-        const { subject_title_id, subject_id, class: classLevel, board_id, question, answer, solution, type, options } = req.body;
+        const { subject_title_id, subject_id, standard: standardLevel, board_id, question, answer, solution, type, options } = req.body;
 
-        if (!subject_title_id || !subject_id || !classLevel || !board_id || !question || !answer || !type) {
+        if (!subject_title_id || !subject_id || !standardLevel || !board_id || !question || !answer || !type) {
             return res.status(400).json({ error: "Missing required fields" });
         }
 
@@ -31,7 +31,7 @@ exports.addQuestion = async (req, res) => {
         const newQuestion = await Question.create({
             subject_title_id,
             subject_id,
-            class: classLevel,
+            standard: standardLevel,
             board_id,
             question,
             answer,
@@ -51,7 +51,7 @@ exports.addQuestion = async (req, res) => {
 exports.editQuestion = async (req, res) => {
     try {
         const { id } = req.params;
-        const { subject_title_id, subject_id, class: classLevel, board_id, question, answer, solution, type, options } = req.body;
+        const { subject_title_id, subject_id, standard: standardLevel, board_id, question, answer, solution, type, options } = req.body;
 
         // Find the existing question
         const existingQuestion = await Question.findByPk(id);
@@ -79,7 +79,7 @@ exports.editQuestion = async (req, res) => {
         await existingQuestion.update({
             subject_title_id,
             subject_id,
-            class: classLevel,
+            standard: standardLevel,
             board_id,
             question,
             answer,
@@ -134,17 +134,17 @@ exports.deleteQuestion = async (req, res) => {
 
 exports.getAllQuestions = async (req, res) => {
     try {
-        const { subject_id, class: classLevel, board_id, type } = req.query;
+        const { subject_id, standard: standardLevel, board_id, type } = req.query;
 
         // Build query dynamically
         const query = {};
         if (subject_id) query.subject_id = subject_id;
-        if (classLevel) query.class = classLevel;
+        if (standardLevel) query.standard = standardLevel;
         if (board_id) query.board_id = board_id;
         if (type) query.type = type;
 
         const questions = await Question.findAll({
-            attributes: ['question_id', 'class', 'question', 'answer', 'solution', 'type', 'options', 'image_url'],
+            attributes: ['question_id', 'standard', 'question', 'answer', 'solution', 'type', 'options', 'image_url'],
             where: query, // Apply filters here
             include: [
                 {
