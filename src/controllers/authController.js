@@ -20,7 +20,7 @@ exports.signup = async (req, res) => {
             school_principal_name,
             subject,
             subject_title,
-            class: userClasses, // Accept class array
+            standard: userstandards, // Accept standard array
         } = req.body;
 
         // Check if email or username already exists
@@ -53,7 +53,7 @@ exports.signup = async (req, res) => {
             school_principal_name,
             subject,
             subject_title,
-            class: userClasses, // Save class array
+            standard: userstandards, // Save standard array
             otp,
         });
 
