@@ -67,7 +67,7 @@ const User = sequelize.define('users', {
         type: DataTypes.STRING,
         allowNull: true,
     },
-    class: {
+    standard: {
         type: DataTypes.JSON,
         allowNull: true,
         defaultValue: [],
