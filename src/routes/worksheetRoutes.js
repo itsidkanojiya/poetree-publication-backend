@@ -4,12 +4,12 @@ const { addWorksheet, getWorksheets, deleteWorksheet } = require('../controllers
 const router = express.Router();
 
 // Add Worksheet
-router.post('/add', addWorksheet);
+router.post('/worksheets/add', addWorksheet);
 
 // Get All Worksheets
-router.get('/', getWorksheets);
+router.get('/worksheets', getWorksheets);
 
 // Delete Worksheet
-router.delete('/:id', deleteWorksheet);
+router.delete('/worksheets/:id', deleteWorksheet);
 
 module.exports = router;

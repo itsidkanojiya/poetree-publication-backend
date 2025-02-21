@@ -4,12 +4,12 @@ const router = express.Router();
 const { addAnswerSheet, getAllAnswerSheets, deleteAnswerSheet } = require('../controllers/answerSheetController');
 
 // Add Answer Sheet
-router.post('/add', addAnswerSheet);
+router.post('/answersheets/add', addAnswerSheet);
 
 // Get All Answer Sheets
-router.get('/', getAllAnswerSheets);
+router.get('/answersheets', getAllAnswerSheets);
 
 // Delete Answer Sheet
-router.delete('/:id', deleteAnswerSheet);
+router.delete('/answersheets/:id', deleteAnswerSheet);
 
 module.exports = router;
