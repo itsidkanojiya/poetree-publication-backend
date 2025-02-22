@@ -71,3 +71,4 @@ Subject.hasMany(SubjectTitle, { foreignKey: 'subject_id', onDelete: 'CASCADE' })
 SubjectTitle.belongsTo(Subject, { foreignKey: 'subject_id' });
 
 module.exports = { Subject, SubjectTitle, Boards};
+  
