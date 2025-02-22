@@ -2,30 +2,44 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 
-// Set up storage
+// Function to create a folder dynamically
+const createUploadFolder = (folderPath) => {
+    if (!fs.existsSync(folderPath)) {
+        fs.mkdirSync(folderPath, { recursive: true });
+    }
+};
+
+// Storage Configuration
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
-        const type = req.body.type; // Get the question type from the request body
+        let uploadPath = "uploads/";
 
-        if (!type || !['mcq', 'short', 'long', 'blank', 'onetwo'].includes(type)) {
-            return cb(new Error('Invalid question type'), false);
+        if (req.originalUrl.includes("question")) {
+            // Upload Path for Questions (based on question type)
+            const type = req.body.type || req.query.type; // Ensure 'type' is available
+            if (!type || !['mcq', 'short', 'long', 'blank', 'onetwo'].includes(type)) {
+                return cb(new Error('Invalid question type'), false);
+            }
+            uploadPath += `question/${type}`;
+        } else if (req.originalUrl.includes("papers")) {
+            // Upload Path for Papers Logo
+            uploadPath += "papers/logo/";
+        } else {
+            return cb(new Error('Invalid upload path'), false);
         }
 
-        const uploadPath = `uploads/question/${type}`;
-
-        // Create folder dynamically if it doesn't exist
-        if (!fs.existsSync(uploadPath)) {
-            fs.mkdirSync(uploadPath, { recursive: true });
-        }
-
+        createUploadFolder(uploadPath);
         cb(null, uploadPath);
     },
+
     filename: (req, file, cb) => {
-        cb(null, Date.now() + path.extname(file.originalname)); // Generate unique filename
-    },
+        // Generate a completely random number filename
+        const randomFilename = `${Math.floor(Math.random() * 10000000000)}${path.extname(file.originalname)}`;
+        cb(null, randomFilename);
+    }
 });
 
-// File filter (Only accept images)
+// File filter (Only allow images)
 const fileFilter = (req, file, cb) => {
     if (file.mimetype.startsWith('image/')) {
         cb(null, true);
@@ -35,6 +49,10 @@ const fileFilter = (req, file, cb) => {
 };
 
 // Multer upload instance
-const upload = multer({ storage, fileFilter });
+const upload = multer({ 
+    storage, 
+    fileFilter,
+    limits: { fileSize: 5 * 1024 * 1024 } // Limit: 5MB
+});
 
 module.exports = upload;
