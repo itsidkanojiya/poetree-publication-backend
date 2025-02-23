@@ -16,26 +16,52 @@ exports.addAnswerSheet = async (req, res) => {
   try {
     const {
       subject_id,
-      worksheet_url,
-      worksheet_logo,
       board_id,
       subject_title_id,
       standard: standardLevel,
     } = req.body;
 
+    // Check if required fields are missing
+    if (!subject_id || !board_id || !subject_title_id || !standardLevel) {
+      return res.status(400).json({
+        error: 'Missing required fields: subject_id, board_id, subject_title_id, standard',
+      });
+    }
+
+    // Check if the files were uploaded correctly
+    const answersheetUrl = req.files && req.files.answersheet_url ? 
+      `uploads/answersheet/pdf/${req.files.answersheet_url[0].filename}` : null;
+
+    const answersheetCoverLink = req.files && req.files.answersheet_coverlink ? 
+      `uploads/answersheet/coverlink/${req.files.answersheet_coverlink[0].filename}` : null;
+
+    if (!answersheetUrl) {
+      return res.status(400).json({ error: 'Missing required file: answersheet_url (PDF)' });
+    }
+console.log(answersheetUrl);
+console.log(answersheetCoverLink);
+    // Create the answer sheet record with file paths
     const answersheet = await AnswerSheet.create({
       subject_id,
-      worksheet_url,
-      worksheet_logo,
+      answer_sheet_url: answersheetUrl,
+      answer_sheet_coverlink: answersheetCoverLink,
       subject_title_id,
       board_id,
-      standard: standardLevel, // Maps to 'standard' column in DB
+      standard: standardLevel,  // Maps to 'standard' column in DB
     });
 
-    res
-      .status(201)
-      .json({ message: "AnswerSheet added successfully", answersheet });
+    // Generate base URL for the file
+    const baseUrl = `${req.protocol}://${req.get('host')}`;
+    const formattedAnswersheet = {
+      ...answersheet.toJSON(),
+      answer_sheet_url: answersheet.answer_sheet_url ? `${baseUrl}/${answersheet.answer_sheet_url}` : null,
+      answer_sheet_coverlink: answersheet.answer_sheet_coverlink ? `${baseUrl}/${answersheet.answer_sheet_coverlink}` : null,
+    };
+
+    return res.status(200).json({ success: true, answersheet: formattedAnswersheet });
+
   } catch (err) {
+    console.error(err);  // Log the error for better debugging
     res.status(400).json({ error: err.message });
   }
 };

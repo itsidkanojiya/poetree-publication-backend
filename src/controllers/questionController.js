@@ -13,19 +13,21 @@ exports.addQuestion = async (req, res) => {
     try {
         const { subject_title_id, subject_id, standard: standardLevel, board_id, question, answer, solution, type, options } = req.body;
 
+        // Validate required fields
         if (!subject_title_id || !subject_id || !standardLevel || !board_id || !question || !answer || !type) {
             return res.status(400).json({ error: "Missing required fields" });
         }
 
+        // Validate question type
         if (!['mcq', 'short', 'long', 'blank', 'onetwo'].includes(type)) {
             return res.status(400).json({ error: "Invalid question type" });
         }
 
-        // Ensure `options` are stored correctly
-        const formattedOptions = options ? (typeof options === "string" ? options : JSON.stringify(options)) : null;
+        // Handle options properly
+        const formattedOptions = options ? (Array.isArray(options) ? JSON.stringify(options) : options) : null;
 
-        // Get the uploaded image path
-        const image_url = req.file ? `uploads/question/${type}/${req.file.filename}` : null;
+        // Get the uploaded image path safely
+        const image_url = req.file?.filename ? `uploads/question/${type}/${req.file.filename}` : null;
 
         // Create the question
         const newQuestion = await Question.create({
@@ -38,7 +40,7 @@ exports.addQuestion = async (req, res) => {
             solution,
             type,
             options: formattedOptions, 
-            image_url,  // Save full image URL
+            image_url,  // Save full image path
         });
 
         res.status(201).json({ message: 'Question added successfully', question: newQuestion });
