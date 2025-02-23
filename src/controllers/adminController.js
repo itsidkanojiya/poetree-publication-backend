@@ -55,7 +55,7 @@ exports.deActivateUser = async (req, res) => {
             return res.status(404).json({ error: 'User not found' });
         }
 
-        user.is_verified = 1; // Update is_verified field
+        user.is_verified = 0; // Update is_verified field
         await user.save(); // Save changes
 
         res.status(200).json({ message: 'User deactivated successfully', user });
