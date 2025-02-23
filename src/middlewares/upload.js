@@ -27,7 +27,13 @@ const storage = multer.diskStorage({
           uploadPath += "answersheet/pdf";
       } else if (file.fieldname === "answersheet_coverlink") {
           // Upload path for image (cover) file
-          uploadPath += "answersheet/coverlink";
+          uploadPath += "answersheet/coverlink";}
+          else if (file.fieldname === "worksheet_url") {
+            // Upload path for PDF file
+            uploadPath += "worksheet/pdf";
+        } else if (file.fieldname === "worksheet_coverlink") {
+            // Upload path for image (cover) file
+            uploadPath += "worksheet/coverlink";
       }else if (req.originalUrl.includes("papers")) {
             // Upload Path for Papers Logo
             uploadPath += "papers/logo/";
@@ -49,6 +55,8 @@ const storage = multer.diskStorage({
 // File filter (Only allow images)
 const fileFilter = (req, file, cb) => {
   if (file.fieldname === "answersheet_url" && file.mimetype === 'application/pdf') {
+    cb(null, true);  // Accept only PDF for answersheet_url
+  }else if (file.fieldname === "worksheet_url" && file.mimetype === 'application/pdf') {
     cb(null, true);  // Accept only PDF for answersheet_url
   }else {
     cb(null, true); 
