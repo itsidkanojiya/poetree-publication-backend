@@ -21,7 +21,14 @@ const storage = multer.diskStorage({
                 return cb(new Error('Invalid question type'), false);
             }
             uploadPath += `question/${type}`;
-        } else if (req.originalUrl.includes("papers")) {
+        } 
+        else if (file.fieldname === "answersheet_url") {
+          // Upload path for PDF file
+          uploadPath += "answersheet/pdf";
+      } else if (file.fieldname === "answersheet_coverlink") {
+          // Upload path for image (cover) file
+          uploadPath += "answersheet/coverlink";
+      }else if (req.originalUrl.includes("papers")) {
             // Upload Path for Papers Logo
             uploadPath += "papers/logo/";
         } else {
@@ -41,18 +48,17 @@ const storage = multer.diskStorage({
 
 // File filter (Only allow images)
 const fileFilter = (req, file, cb) => {
-    if (file.mimetype.startsWith('image/')) {
-        cb(null, true);
-    } else {
-        cb(new Error('Only image files are allowed!'), false);
-    }
+  if (file.fieldname === "answersheet_url" && file.mimetype === 'application/pdf') {
+    cb(null, true);  // Accept only PDF for answersheet_url
+  }else {
+    cb(null, true); 
+  }
 };
 
-// Multer upload instance
 const upload = multer({ 
-    storage, 
-    fileFilter,
-    limits: { fileSize: 5 * 1024 * 1024 } // Limit: 5MB
+  storage, 
+  fileFilter,
+  limits: { fileSize: 10 * 1024 * 1024 } // Limit: 5MB for both PDF and image files
 });
 
 module.exports = upload;

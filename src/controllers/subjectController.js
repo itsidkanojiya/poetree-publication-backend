@@ -54,11 +54,19 @@ exports.editSubjectTitle = async (req, res) => {
 exports.getAllSubjects = async (req, res) => {
     try {
         const subjects = await Subject.findAll({
-            include: {
-                model: SubjectTitle,
-            },
+         
         });
         res.status(200).json(subjects);
+    } catch (err) {
+        res.status(400).json({ error: err.message });
+    }
+};
+exports.getAllSubjectTitle = async (req, res) => {
+    try {
+        const subjectTitle = await SubjectTitle.findAll({
+          
+        });
+        res.status(200).json(subjectTitle);
     } catch (err) {
         res.status(400).json({ error: err.message });
     }

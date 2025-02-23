@@ -20,6 +20,7 @@ router.delete('/subjectTitle/:id', authMiddleware.verifyAdmin, subjectController
 
 // Get routes
 router.get('/subjects', subjectController.getAllSubjects);
+router.get('/subjectTitle', subjectController.getAllSubjectTitle);
 router.get('/subject/:subject_id/titles', subjectController.getSubjectTitlesBySubjectId);
 router.get('/subjectTitle/:subject_title_id/standard', subjectController.getstandardBySubjectTitleId);
 
