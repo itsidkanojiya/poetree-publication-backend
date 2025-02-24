@@ -12,8 +12,8 @@ const AnswerSheet = sequelize.define('answersheets', {
         field: 'standard' // Maps to 'class' column in the database
     },
     board_id: { type: DataTypes.INTEGER, allowNull: false },
-    answer_sheet_url: { type: DataTypes.STRING, allowNull: false },
-    answer_sheet_coverlink: { type: DataTypes.STRING, allowNull: true },
+    answersheet_url: { type: DataTypes.STRING, allowNull: false },
+    answersheet_coverlink: { type: DataTypes.STRING, allowNull: true },
 }, {
     timestamps: true,  
 });

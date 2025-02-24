@@ -43,8 +43,8 @@ console.log(answersheetCoverLink);
     // Create the answer sheet record with file paths
     const answersheet = await AnswerSheet.create({
       subject_id,
-      answer_sheet_url: answersheetUrl,
-      answer_sheet_coverlink: answersheetCoverLink,
+      answersheet_url: answersheetUrl,
+      answersheet_coverlink: answersheetCoverLink,
       subject_title_id,
       board_id,
       standard: standardLevel,  // Maps to 'standard' column in DB
@@ -54,9 +54,10 @@ console.log(answersheetCoverLink);
     const baseUrl = `${req.protocol}://${req.get('host')}`;
     const formattedAnswersheet = {
       ...answersheet.toJSON(),
-      answer_sheet_url: answersheet.answer_sheet_url ? `${baseUrl}/${answersheet.answer_sheet_url}` : null,
-      answer_sheet_coverlink: answersheet.answer_sheet_coverlink ? `${baseUrl}/${answersheet.answer_sheet_coverlink}` : null,
+      answersheet_url: answersheet.answersheet_url ? `${baseUrl}/${answersheet.answersheet_url}` : null,
+      answersheet_coverlink: answersheet.answersheet_coverlink ? `${baseUrl}/${answersheet.answersheet_coverlink}` : null,
     };
+
 
     return res.status(200).json({ success: true, answersheet: formattedAnswersheet });
 
@@ -73,8 +74,8 @@ exports.getAllAnswerSheets = async (req, res) => {
       attributes: [
         "answer_sheet_id",
         "standard",
-        "answer_sheet_url",
-        "answer_sheet_logo",
+        "answersheet_url",
+        "answersheet_coverlink",
         "createdAt",
         "updatedAt",
       ],
@@ -96,7 +97,7 @@ exports.getAllAnswerSheets = async (req, res) => {
         },
       ],
     });
-
+    const baseUrl = `${req.protocol}://${req.get('host')}`;
     // Transform the response to flatten the subject field
     const formattedAnswerSheets = answerSheets.map((sheet) => ({
       ...sheet.toJSON(),
@@ -105,6 +106,8 @@ exports.getAllAnswerSheets = async (req, res) => {
         ? sheet.subject_title.title_name
         : null,
       board: sheet.board ? sheet.board.board_name : null,
+      answersheet_url:  `${baseUrl}/${sheet.answersheet_url}` ,
+      answersheet_coverlink: `${baseUrl}/${sheet.answersheet_coverlink}` ,
     }));
 
     res.status(200).json(formattedAnswerSheets);
@@ -115,15 +118,47 @@ exports.getAllAnswerSheets = async (req, res) => {
 };
 
 // Delete Answer Sheet
+
 exports.deleteAnswerSheet = async (req, res) => {
   try {
     const { id } = req.params;
+
+    // Find the answer sheet by ID
     const answerSheet = await AnswerSheet.findByPk(id);
-    if (!answerSheet)
+    if (!answerSheet) {
       return res.status(404).json({ message: "Answer sheet not found" });
+    }
+
+    // Delete the PDF file (answersheet_url)
+    if (answerSheet.answersheet_url) {
+      const filePath = path.join(__dirname, '..', '..', answerSheet.answersheet_url); // Adjust path
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath);
+        console.log(`✅ Deleted file: ${filePath}`);
+      } else {
+        console.log(`❌ File not found: ${filePath}`);
+      }
+    }
+
+    // Delete the cover image file (answersheet_coverlink) if it exists
+    if (answerSheet.answersheet_coverlink) {
+      const coverPath = path.join(__dirname, '..', '..', answerSheet.answersheet_coverlink);
+      if (fs.existsSync(coverPath)) {
+        fs.unlinkSync(coverPath);
+        console.log(`✅ Deleted cover image: ${coverPath}`);
+      } else {
+        console.log(`❌ Cover image not found: ${coverPath}`);
+      }
+    }
+
+    // Delete the answer sheet from the database
     await answerSheet.destroy();
-    res.status(200).json({ message: "Answer sheet deleted successfully" });
+
+    res.status(200).json({ message: "Answer sheet and associated files deleted successfully" });
+
   } catch (err) {
+    console.error(err);
     res.status(500).json({ error: err.message });
   }
 };
+

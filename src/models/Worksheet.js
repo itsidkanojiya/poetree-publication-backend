@@ -22,7 +22,7 @@ const Worksheet = sequelize.define('worksheet', {
         type: DataTypes.STRING, 
         allowNull: false,
     },
-    worksheet_logo: {
+    worksheet_coverlink: {
         type: DataTypes.STRING,
         allowNull: false,
     },
