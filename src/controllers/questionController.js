@@ -19,7 +19,7 @@ exports.addQuestion = async (req, res) => {
         }
 
         // Validate question type
-        if (!['mcq', 'short', 'long', 'blank', 'onetwo'].includes(type)) {
+        if (!['mcq', 'short', 'long', 'blank', 'onetwo', 'truefalse'].includes(type)) {
             return res.status(400).json({ error: "Invalid question type" });
         }
 

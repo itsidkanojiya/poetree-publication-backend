@@ -17,7 +17,7 @@ const storage = multer.diskStorage({
         if (req.originalUrl.includes("question")) {
             // Upload Path for Questions (based on question type)
             const type = req.body.type || req.query.type; // Ensure 'type' is available
-            if (!type || !['mcq', 'short', 'long', 'blank', 'onetwo'].includes(type)) {
+            if (!type || !['mcq', 'short', 'long', 'blank', 'onetwo' , 'truefalse'].includes(type)) {
                 return cb(new Error('Invalid question type'), false);
             }
             uploadPath += `question/${type}`;
