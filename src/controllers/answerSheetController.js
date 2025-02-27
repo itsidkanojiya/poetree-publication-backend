@@ -24,22 +24,29 @@ exports.addAnswerSheet = async (req, res) => {
     // Check if required fields are missing
     if (!subject_id || !board_id || !subject_title_id || !standardLevel) {
       return res.status(400).json({
-        error: 'Missing required fields: subject_id, board_id, subject_title_id, standard',
+        error:
+          "Missing required fields: subject_id, board_id, subject_title_id, standard",
       });
     }
 
     // Check if the files were uploaded correctly
-    const answersheetUrl = req.files && req.files.answersheet_url ? 
-      `uploads/answersheet/pdf/${req.files.answersheet_url[0].filename}` : null;
+    const answersheetUrl =
+      req.files && req.files.answersheet_url
+        ? `uploads/answersheet/pdf/${req.files.answersheet_url[0].filename}`
+        : null;
 
-    const answersheetCoverLink = req.files && req.files.answersheet_coverlink ? 
-      `uploads/answersheet/coverlink/${req.files.answersheet_coverlink[0].filename}` : null;
+    const answersheetCoverLink =
+      req.files && req.files.answersheet_coverlink
+        ? `uploads/answersheet/coverlink/${req.files.answersheet_coverlink[0].filename}`
+        : null;
 
     if (!answersheetUrl) {
-      return res.status(400).json({ error: 'Missing required file: answersheet_url (PDF)' });
+      return res
+        .status(400)
+        .json({ error: "Missing required file: answersheet_url (PDF)" });
     }
-console.log(answersheetUrl);
-console.log(answersheetCoverLink);
+    console.log(answersheetUrl);
+    console.log(answersheetCoverLink);
     // Create the answer sheet record with file paths
     const answersheet = await AnswerSheet.create({
       subject_id,
@@ -47,22 +54,26 @@ console.log(answersheetCoverLink);
       answersheet_coverlink: answersheetCoverLink,
       subject_title_id,
       board_id,
-      standard: standardLevel,  // Maps to 'standard' column in DB
+      standard: standardLevel, // Maps to 'standard' column in DB
     });
 
     // Generate base URL for the file
-    const baseUrl = `${req.protocol}://${req.get('host')}`;
+    const baseUrl = `${req.protocol}://${req.get("host")}`;
     const formattedAnswersheet = {
       ...answersheet.toJSON(),
-      answersheet_url: answersheet.answersheet_url ? `${baseUrl}/${answersheet.answersheet_url}` : null,
-      answersheet_coverlink: answersheet.answersheet_coverlink ? `${baseUrl}/${answersheet.answersheet_coverlink}` : null,
+      answersheet_url: answersheet.answersheet_url
+        ? `${baseUrl}/${answersheet.answersheet_url}`
+        : null,
+      answersheet_coverlink: answersheet.answersheet_coverlink
+        ? `${baseUrl}/${answersheet.answersheet_coverlink}`
+        : null,
     };
 
-
-    return res.status(200).json({ success: true, answersheet: formattedAnswersheet });
-
+    return res
+      .status(200)
+      .json({ success: true, answersheet: formattedAnswersheet });
   } catch (err) {
-    console.error(err);  // Log the error for better debugging
+    console.error(err); // Log the error for better debugging
     res.status(400).json({ error: err.message });
   }
 };
@@ -97,7 +108,7 @@ exports.getAllAnswerSheets = async (req, res) => {
         },
       ],
     });
-    const baseUrl = `${req.protocol}://${req.get('host')}`;
+    const baseUrl = `${req.protocol}://${req.get("host")}`;
     // Transform the response to flatten the subject field
     const formattedAnswerSheets = answerSheets.map((sheet) => ({
       ...sheet.toJSON(),
@@ -106,8 +117,8 @@ exports.getAllAnswerSheets = async (req, res) => {
         ? sheet.subject_title.title_name
         : null,
       board: sheet.board ? sheet.board.board_name : null,
-      answersheet_url:  `${baseUrl}/${sheet.answersheet_url}` ,
-      answersheet_coverlink: `${baseUrl}/${sheet.answersheet_coverlink}` ,
+      answersheet_url: `${baseUrl}/${sheet.answersheet_url}`,
+      answersheet_coverlink: `${baseUrl}/${sheet.answersheet_coverlink}`,
     }));
 
     res.status(200).json(formattedAnswerSheets);
@@ -131,7 +142,12 @@ exports.deleteAnswerSheet = async (req, res) => {
 
     // Delete the PDF file (answersheet_url)
     if (answerSheet.answersheet_url) {
-      const filePath = path.join(__dirname, '..', '..', answerSheet.answersheet_url); // Adjust path
+      const filePath = path.join(
+        __dirname,
+        "..",
+        "..",
+        answerSheet.answersheet_url
+      ); // Adjust path
       if (fs.existsSync(filePath)) {
         fs.unlinkSync(filePath);
         console.log(`✅ Deleted file: ${filePath}`);
@@ -142,7 +158,12 @@ exports.deleteAnswerSheet = async (req, res) => {
 
     // Delete the cover image file (answersheet_coverlink) if it exists
     if (answerSheet.answersheet_coverlink) {
-      const coverPath = path.join(__dirname, '..', '..', answerSheet.answersheet_coverlink);
+      const coverPath = path.join(
+        __dirname,
+        "..",
+        "..",
+        answerSheet.answersheet_coverlink
+      );
       if (fs.existsSync(coverPath)) {
         fs.unlinkSync(coverPath);
         console.log(`✅ Deleted cover image: ${coverPath}`);
@@ -154,11 +175,11 @@ exports.deleteAnswerSheet = async (req, res) => {
     // Delete the answer sheet from the database
     await answerSheet.destroy();
 
-    res.status(200).json({ message: "Answer sheet and associated files deleted successfully" });
-
+    res.status(200).json({
+      message: "Answer sheet and associated files deleted successfully",
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });
   }
 };
-
