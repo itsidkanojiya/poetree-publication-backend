@@ -39,7 +39,7 @@ exports.addAnswerSheet = async (req, res) => {
       return res.status(400).json({ error: 'Missing required file: answersheet_url (PDF)' });
     }
 console.log(answersheetUrl);
-console.log(answersheetCoverLink);
+console.log(answersheetCoverLink); 
     // Create the answer sheet record with file paths
     const answersheet = await AnswerSheet.create({
       subject_id,
