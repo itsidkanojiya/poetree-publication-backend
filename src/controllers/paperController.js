@@ -9,6 +9,7 @@ exports.addPaper = async (req, res) => {
 
         // Validate required fields
         if (!user_id || !type || !school_name || !standard || !timing || !date || !address || !subject || !board || !body) {
+            
             return res.status(400).json({ success: false, message: "Missing required fields" });
         }
 
@@ -18,7 +19,7 @@ exports.addPaper = async (req, res) => {
         }
 
         // Get the uploaded image path for `logo`
-        const logo = req.file ? `uploads/papers/logo/${req.file.filename}` : null;
+        const logo = req.file ? `uploads/papers/logo/${req.file.filename}` : "/uploads/1739360660741.JPG";
 
         // Create paper entry
         const paper = await Paper.create({
