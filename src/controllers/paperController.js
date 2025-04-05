@@ -1,5 +1,6 @@
 const Paper = require('../models/Paper'); // Adjust path if needed
-
+const path = require("path");
+const fs = require("fs");
 
 const allowedTypes = ["custom", "default"];
 
@@ -106,6 +107,7 @@ exports.getPapersByUserId = async (req, res) => {
 exports.deletePaper = async (req, res) => {
     try {
         const { id } = req.params;
+        console.log(id);
 
         // Find the paper by ID
         const paper = await Paper.findByPk(id);
