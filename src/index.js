@@ -1,3 +1,5 @@
+
+const path = require('path');
 const express = require('express');
 const cors = require('cors');
 const dotenv = require('dotenv');
@@ -16,9 +18,12 @@ const path = require('path');
 const app = express();
 app.use(express.json());
 app.use(cors());
+app.use(express.static(path.join(__dirname, 'client')));
 
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
-
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'client', 'index.html'));
+});
 console.log('Serving static files from:', path.join(__dirname, '../uploads'));
 
 // Use the auth routes
