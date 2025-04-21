@@ -13,7 +13,7 @@ const adminRoutes = require('./routes/adminRoutes');
 const paperRoutes = require('./routes/paperRoutes');
 const questionRoutes = require('./routes/questionRoutes');
 dotenv.config();
-const path = require('path');
+    
 
 const app = express();
 app.use(express.json());
