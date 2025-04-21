@@ -20,9 +20,7 @@ const app = express();
 app.use(express.json());
 app.use(cors());
 app.use(express.static(path.join(__dirname, '../client')));
-app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, '../client', 'index.html'));
-});
+
 
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
@@ -38,6 +36,10 @@ app.use('/headers', headerRoutes);
 app.use('/papers', paperRoutes);
 app.use('/admin',adminRoutes );
 app.use('/question',questionRoutes );
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, '../client', 'index.html'));
+});
+
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
     console.log(`Server is running on http://localhost:${PORT}`);
