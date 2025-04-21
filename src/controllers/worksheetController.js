@@ -1,4 +1,5 @@
-const WorkSheet = require("../models/WorkSheet");
+const  WorkSheet  = require("../models/Worksheet");
+
 const { Subject, SubjectTitle, Boards } = require("../models/Subjects");
 // Define Associations
 WorkSheet.belongsTo(Subject, { foreignKey: "subject_id", as: "subject" });
