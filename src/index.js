@@ -19,12 +19,13 @@ dotenv.config();
 const app = express();
 app.use(express.json());
 app.use(cors());
-app.use(express.static(path.join(__dirname, 'client')));
+app.use(express.static(path.join(__dirname, '../client')));
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, '../client', 'index.html'));
+});
 
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
-app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'client', 'index.html'));
-});
+
 console.log('Serving static files from:', path.join(__dirname, '../uploads'));
 
 // Use the auth routes
