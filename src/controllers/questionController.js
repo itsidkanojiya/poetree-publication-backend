@@ -23,11 +23,11 @@ exports.addQuestion = async (req, res) => {
       answer,
       solution,
       type,
-      options,
+      options,marks
     } = req.body;
 
         // Validate required fields
-        if (!subject_title_id || !subject_id || !standardLevel || !board_id || !question || !answer || !type) {
+        if (!subject_title_id || !subject_id || !standardLevel || !board_id || !question || !answer || !type || !marks) {
             return res.status(400).json({ error: "Missing required fields" });
         }
 
@@ -51,7 +51,7 @@ exports.addQuestion = async (req, res) => {
             question,
             answer,
             solution,
-            type,
+            type,marks,
             options: formattedOptions, 
             image_url,  // Save full image path
         });
@@ -66,7 +66,7 @@ exports.addQuestion = async (req, res) => {
       !subject_id ||
       !standardLevel ||
       !board_id ||
-      !question ||
+      !question || !marks ||
       !answer ||
       !type
     ) {
@@ -97,7 +97,7 @@ exports.addQuestion = async (req, res) => {
       standard: standardLevel,
       board_id,
       question,
-      answer,
+      answer,marks,
       solution,
       type,
       options: formattedOptions,
@@ -117,7 +117,7 @@ exports.editQuestion = async (req, res) => {
       subject_title_id,
       subject_id,
       standard: standardLevel,
-      board_id,
+      board_id, marks,
       question,
       answer,
       solution,
@@ -150,7 +150,7 @@ exports.editQuestion = async (req, res) => {
 
     // Update the question
     await existingQuestion.update({
-      subject_title_id,
+      subject_title_id, marks,
       subject_id,
       standard: standardLevel,
       board_id,
