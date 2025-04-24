@@ -209,7 +209,7 @@ exports.deleteQuestion = async (req, res) => {
 
 exports.getAllQuestions = async (req, res) => {
   try {
-    const { subject_id, standard: standardLevel, board_id, type } = req.query;
+    const { subject_id, standard: standardLevel, board_id, type , marks} = req.query;
 
     // Build query dynamically
     const query = {};
@@ -217,6 +217,7 @@ exports.getAllQuestions = async (req, res) => {
     if (standardLevel) query.standard = standardLevel;
     if (board_id) query.board_id = board_id;
     if (type) query.type = type;
+    if (marks) query.marks = marks;
 
     const questions = await Question.findAll({
       attributes: [
@@ -228,6 +229,7 @@ exports.getAllQuestions = async (req, res) => {
         "type",
         "options",
         "image_url",
+        "marks"
       ],
       where: query, // Apply filters here
       include: [
@@ -258,6 +260,7 @@ exports.getAllQuestions = async (req, res) => {
       subject_title: q.subject_title ? q.subject_title.title_name : null,
       board: q.board ? q.board.board_name : null,
       options: q.options ? JSON.parse(q.options) : null, // Parse options if stored as JSON
+      marks: q.marks ? JSON.parse(q.marks) : null, // Parse options if stored as JSON
       image_url: q.image_url ? `${baseUrl}${q.image_url}` : null, // Convert relative path to full URL
     }));
 
