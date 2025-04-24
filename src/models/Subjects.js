@@ -1,5 +1,6 @@
 const { DataTypes } = require('sequelize');
 const sequelize = require('../config/db');
+const User = require('../models/User');
 
 // Subject Model
 const Subject = sequelize.define('Subject', {
@@ -66,9 +67,18 @@ const Boards = sequelize.define('boards', {
     timestamps: false,
 });
 
+
+
+
 // Associations
 Subject.hasMany(SubjectTitle, { foreignKey: 'subject_id', onDelete: 'CASCADE' });
 SubjectTitle.belongsTo(Subject, { foreignKey: 'subject_id' });
+
+// Subject.hasMany(User, {
+//   foreignKey: 'subject_titles',
+//   sourceKey: 'subject_id',
+// });
+
 
 module.exports = { Subject, SubjectTitle, Boards};
   

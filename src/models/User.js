@@ -1,5 +1,7 @@
 const { DataTypes } = require('sequelize');
 const sequelize = require('../config/db');
+const { Subject } = require('../models/Subjects');
+
 
 // Define the User model
 const User = sequelize.define('users', {
@@ -90,5 +92,11 @@ const User = sequelize.define('users', {
     timestamps: true, // Automatically adds createdAt and updatedAt fields
     underscored: true, // Converts camelCase to snake_case for DB fields
 });
+
+User.belongsTo(Subject, {
+  foreignKey: 'subject_titles',  // User.subject_title → Subject.subject_id
+  targetKey: 'subject_id',
+});
+
 
 module.exports = User;

@@ -3,6 +3,8 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const { Op } = require('sequelize');
+const { Subject } = require('../models/Subjects');
+
 
 // Sign Up
 exports.signup = async (req, res) => {
@@ -57,13 +59,38 @@ exports.signup = async (req, res) => {
             otp,
         });
 
+        const createdUserWithSubject = await User.findOne({
+  where: { id: newUser.id },
+  include: [
+    {
+      model: Subject,
+      attributes: ['subject_id', 'subject_name'], // choose fields you want
+    },
+  ],
+});
+
         res.status(201).json({
             message: 'OTP Sent successfully.',
+            token: generateToken(newUser), // Generate token on successful signup
             user: {
+                createdUserWithSubject,
                 id: newUser.id,
                 name: newUser.name,
                 email: newUser.email,
+                phone_number: newUser.phone_number,
                 username: newUser.username,
+                user_type: newUser.user_type,
+                school_name: newUser.school_name,
+                school_address_state: newUser.school_address_state,
+                school_address_pincode: newUser.school_address_pincode,
+                school_address_city: newUser.school_address_city,
+                school_principal_name: newUser.school_principal_name,
+                subject: newUser.subject,
+                subject_title: newUser.subject_title,
+                standard: newUser.standard,
+                is_verified: newUser.is_verified,
+                is_number_verified: newUser.is_number_verified,
+                
             },
         });
     } catch (error) {
@@ -73,56 +100,70 @@ exports.signup = async (req, res) => {
 };
 
 
+
 exports.login = async (req, res) => {
     try {
-      const { username, password } = req.body;
-  
-      // Validate input
-      if (!username || !password) {
-        return res.status(400).json({ error: 'Username and password are required.' });
-      }
-  
-      // Check if user exists
-      const user = await User.findOne({ where: { username } });
-      if (!user) {
-        return res.status(404).json({ error: 'User not found.' });
-      }
-  
-      // Compare passssswords
-      const isPasswordValid = await bcrypt.compare(password, user.password);
-      if (!isPasswordValid) {
-        return res.status(401).json({ error: 'Invalid username or password.' });
-      }
-  
-      // Generate JWT
-      const payload = {
+        const { username, password } = req.body;
+
+        // Validate input
+        if (!username || !password) {
+            return res.status(400).json({ error: 'Username and password are required.' });
+        }
+
+        // Check if user exists
+        const user = await User.findOne({ where: { username } });
+        if (!user) {
+            return res.status(404).json({ error: 'User not found.' });
+        }
+
+        // Compare passwords
+        const isPasswordValid = await bcrypt.compare(password, user.password);
+        if (!isPasswordValid) {
+            return res.status(401).json({ error: 'Invalid username or password.' });
+        }
+
+        // Generate JWT
+        const token = generateToken(user);
+
+        // Response with token and user details
+        res.status(200).json({
+            message: 'Login successful',
+            token,
+            user: {
+                id: user.id,
+                name: user.name,
+                email: user.email,
+                phone_number: user.phone_number,
+                username: user.username,
+                user_type: user.user_type,
+                school_name: user.school_name,
+                school_address_state: user.school_address_state,
+                school_address_pincode: user.school_address_pincode,
+                school_address_city: user.school_address_city,
+                school_principal_name: user.school_principal_name,
+                subject: user.subject,
+                subject_title: user.subject_title,
+                standard: user.standard,
+                is_verified: user.is_verified,
+                is_number_verified: user.is_number_verified,
+              
+            },
+        });
+    } catch (err) {
+        res.status(500).json({ error: 'Internal server error', details: err.message });
+    }
+};
+// Helper function to generate JWT token
+const generateToken = (user) => {
+    const payload = {
         id: user.id,
         username: user.username,
         user_type: user.user_type,
-      };
-  
-      const token = jwt.sign(payload, process.env.JWT_SECRET || 'default_secret', {
-        expiresIn: '1h',
-      });
-  
-      // Response with token and user details
-      res.status(200).json({
-        message: 'Login successful',
-        token,
-        user: {
-          id: user.id,
-          name: user.name,
-          email: user.email,
-          phone_number: user.phone_number,
-          username: user.username,
-          user_type: user.user_type,
-        },
-      });
-  
-    } catch (err) {
-      res.status(500).json({ error: 'Internal server error', details: err.message });
-    }
-  };
+    };
+
+    return jwt.sign(payload, process.env.JWT_SECRET || 'default_secret', { expiresIn: '1h' });
+};
+
 // Verify OTP
 exports.verifyOtp = async (req, res) => {
     try {
