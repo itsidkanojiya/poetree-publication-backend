@@ -1,6 +1,6 @@
  
 const express = require('express');
-const { signup, verifyOtp, forgotPassword, changePassword , login,verifyToken} = require('../controllers/authController');
+const { signup, verifyOtp, forgotPassword, changePassword , login,verifyToken,getProfile} = require('../controllers/authController');
 
 const router = express.Router();
 
@@ -10,4 +10,6 @@ router.post('/verify-otp', verifyOtp);
 router.post('/forgot-password', forgotPassword);
 router.post('/change-password', changePassword);
 router.get('/verify-token', verifyToken);
+// router.get('/profile', getProfile);
 module.exports = router;
+0

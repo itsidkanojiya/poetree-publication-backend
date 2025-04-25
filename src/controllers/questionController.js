@@ -23,11 +23,11 @@ exports.addQuestion = async (req, res) => {
       answer,
       solution,
       type,
-      options,
+      options,marks
     } = req.body;
 
         // Validate required fields
-        if (!subject_title_id || !subject_id || !standardLevel || !board_id || !question || !answer || !type) {
+        if (!subject_title_id || !subject_id || !standardLevel || !board_id || !question || !answer || !type || !marks) {
             return res.status(400).json({ error: "Missing required fields" });
         }
 
@@ -51,7 +51,7 @@ exports.addQuestion = async (req, res) => {
             question,
             answer,
             solution,
-            type,
+            type,marks,
             options: formattedOptions, 
             image_url,  // Save full image path
         });
@@ -66,7 +66,7 @@ exports.addQuestion = async (req, res) => {
       !subject_id ||
       !standardLevel ||
       !board_id ||
-      !question ||
+      !question || !marks ||
       !answer ||
       !type
     ) {
@@ -97,7 +97,7 @@ exports.addQuestion = async (req, res) => {
       standard: standardLevel,
       board_id,
       question,
-      answer,
+      answer,marks,
       solution,
       type,
       options: formattedOptions,
@@ -117,7 +117,7 @@ exports.editQuestion = async (req, res) => {
       subject_title_id,
       subject_id,
       standard: standardLevel,
-      board_id,
+      board_id, marks,
       question,
       answer,
       solution,
@@ -150,7 +150,7 @@ exports.editQuestion = async (req, res) => {
 
     // Update the question
     await existingQuestion.update({
-      subject_title_id,
+      subject_title_id, marks,
       subject_id,
       standard: standardLevel,
       board_id,
@@ -209,7 +209,7 @@ exports.deleteQuestion = async (req, res) => {
 
 exports.getAllQuestions = async (req, res) => {
   try {
-    const { subject_id, standard: standardLevel, board_id, type } = req.query;
+    const { subject_id, standard: standardLevel, board_id, type , marks} = req.query;
 
     // Build query dynamically
     const query = {};
@@ -217,6 +217,7 @@ exports.getAllQuestions = async (req, res) => {
     if (standardLevel) query.standard = standardLevel;
     if (board_id) query.board_id = board_id;
     if (type) query.type = type;
+    if (marks) query.marks = marks;
 
     const questions = await Question.findAll({
       attributes: [
@@ -228,6 +229,7 @@ exports.getAllQuestions = async (req, res) => {
         "type",
         "options",
         "image_url",
+        "marks"
       ],
       where: query, // Apply filters here
       include: [
@@ -258,6 +260,7 @@ exports.getAllQuestions = async (req, res) => {
       subject_title: q.subject_title ? q.subject_title.title_name : null,
       board: q.board ? q.board.board_name : null,
       options: q.options ? JSON.parse(q.options) : null, // Parse options if stored as JSON
+      marks: q.marks ? JSON.parse(q.marks) : null, // Parse options if stored as JSON
       image_url: q.image_url ? `${baseUrl}${q.image_url}` : null, // Convert relative path to full URL
     }));
 
