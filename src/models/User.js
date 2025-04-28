@@ -62,11 +62,11 @@ const User = sequelize.define('users', {
         allowNull: true,
     },
     subject: {
-        type: DataTypes.STRING,
+        type: DataTypes.INTEGER,
         allowNull: true,
     },
     subject_title: {
-        type: DataTypes.STRING,
+        type: DataTypes.INTEGER,
         allowNull: true,
     },
     standard: {
