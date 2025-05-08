@@ -2,16 +2,58 @@ const User = require("../models/User");
 const express = require("express");
 const { Op } = require("sequelize");
 const moment = require("moment");
+const { Subject, SubjectTitle } = require("../models/Subjects");
+
 exports.getAllUser = async (req, res) => {
   try {
     const users = await User.findAll({
       where: { user_type: "user" },
     });
-    res.status(200).json(users);
+
+    // Fetch subject and subject title for each user manually
+    const formattedUsers = await Promise.all(
+      users.map(async (user) => {
+        // Fetch subject
+        const subjectData = await Subject.findOne({
+          where: { subject_id: user.subject },
+          attributes: ["subject_name"],
+        });
+
+        // Fetch subject title
+        const subjectTitleData = await SubjectTitle.findOne({
+          where: { subject_title_id: user.subject_title },
+          attributes: ["title_name"],
+        });
+
+        // Return formatted user data
+        return {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          phone_number: user.phone_number,
+          username: user.username,
+          user_type: user.user_type,
+          school_name: user.school_name,
+          school_address_state: user.school_address_state,
+          school_address_pincode: user.school_address_pincode,
+          school_address_city: user.school_address_city,
+          school_principal_name: user.school_principal_name,
+          subject: subjectData ? subjectData.subject_name : null,
+          subject_title: subjectTitleData ? subjectTitleData.title_name : null,
+          standard: user.standard,
+          is_verified: user.is_verified,
+          is_number_verified: user.is_number_verified,
+        };
+      })
+    );
+
+    res.status(200).json(formattedUsers);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: "Internal server error", details: err.message });
   }
 };
+
+
 exports.userAnalysis = async (req, res) => {
   try {
     const today = moment().startOf("day");
