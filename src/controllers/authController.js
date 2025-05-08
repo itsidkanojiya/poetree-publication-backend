@@ -112,7 +112,7 @@ exports.login = async (req, res) => {
   try {
     const { username, password } = req.body;
 
-    console.log("CALL", req.body);
+    
     // Validate input
     if (!username || !password) {
       return res
@@ -151,27 +151,28 @@ exports.login = async (req, res) => {
 
     // Response with token and user details
     res.status(200).json({
-      message: "Login successful",
-      token,
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        phone_number: user.phone_number,
-        username: user.username,
-        user_type: user.user_type,
-        school_name: user.school_name,
-        school_address_state: user.school_address_state,
-        school_address_pincode: user.school_address_pincode,
-        school_address_city: user.school_address_city,
-        school_principal_name: user.school_principal_name,
-        subject: subjectData.subject_name,
-        subject_title: subjectTitleData.title_name,
-        standard: user.standard,
-        is_verified: user.is_verified,
-        is_number_verified: user.is_number_verified,
-      },
-    });
+  message: "Login successful",
+  token,
+  user: {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    phone_number: user.phone_number,
+    username: user.username,
+    user_type: user.user_type,
+    school_name: user.school_name,
+    school_address_state: user.school_address_state,
+    school_address_pincode: user.school_address_pincode,
+    school_address_city: user.school_address_city,
+    school_principal_name: user.school_principal_name,
+    subject: subjectData ? subjectData.subject_name : null,
+    subject_title: subjectTitleData ? subjectTitleData.title_name : null,
+    standard: user.standard,
+    is_verified: user.is_verified,
+    is_number_verified: user.is_number_verified,
+  },
+});
+
   } catch (err) {
     res
       .status(500)
