@@ -63,14 +63,31 @@ exports.getAllSubjects = async (req, res) => {
 };
 exports.getAllSubjectTitle = async (req, res) => {
     try {
-        const subjectTitle = await SubjectTitle.findAll({
-          
+        const subjectTitles = await SubjectTitle.findAll({
+            include: [
+                {
+                    model: Subject,
+                    attributes: ['subject_name'],
+                },
+            ],
+            raw: true,
+            nest: true
         });
-        res.status(200).json(subjectTitle);
+
+        const formatted = subjectTitles.map(item => ({
+            subject_title_id: item.subject_title_id,
+            title_name: item.title_name,
+            subject_id: item.subject_id,
+            subject: item.Subject.subject_name,
+            standard: item.standard
+        }));
+
+        res.status(200).json(formatted);
     } catch (err) {
         res.status(400).json({ error: err.message });
     }
 };
+
 exports.getSubjectTitlesBySubjectId = async (req, res) => {
     try {
         const { subject_id } = req.params;
