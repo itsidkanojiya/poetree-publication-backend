@@ -5,9 +5,10 @@ const transporter = nodemailer.createTransport({
   port: 587,
   secure: false,
   auth: {
-    user: process.env.BREVO_EMAIL,
-    pass: process.env.BREVO_PASSWORD,
-  },
+  user: process.env.BREVO_USER,
+  pass: process.env.BREVO_PASS,
+}
+
 });
 
 const sendOTPEmail = async (to, otp) => {

@@ -6,8 +6,10 @@ const { Subject, SubjectTitle } = require("../models/Subjects");
 const {sendOTPEmail,sendNewPasswordEmail,sendAccountActivationPendingEmail } = require("../utils/sendOTPEmail");
 
 const generateOTP = () => Math.floor(100000 + Math.random() * 900000).toString(); // e.g. 6-digit
+
 const generateRandomPassword = () =>
   Math.random().toString(36).slice(-8);
+
 exports.signup = async (req, res) => {
   try {
     const {
@@ -39,6 +41,9 @@ exports.signup = async (req, res) => {
     const hashedPassword = await bcrypt.hash(password, 10);
     const otp = generateOTP();
 
+    const otpExpiry = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes from now
+    const lastOtpSentAt = new Date(); // current timestamp
+
     const newUser = await User.create({
       name,
       email,
@@ -55,6 +60,8 @@ exports.signup = async (req, res) => {
       subject_title,
       standard: userstandards,
       otp,
+      otp_expiry: otpExpiry,
+      last_otp_sent_at: lastOtpSentAt,
     });
 
     const subjectData = await Subject.findOne({
@@ -103,8 +110,6 @@ exports.signup = async (req, res) => {
     res.status(500).json({ message: "Internal server error." });
   }
 };
-
-
 
 exports.login = async (req, res) => {
   try {
@@ -177,6 +182,7 @@ exports.login = async (req, res) => {
       .json({ error: "Internal server error", details: err.message });
   }
 };
+
 // Helper function to generate JWT token
 const generateToken = (user) => {
   const payload = {
@@ -236,6 +242,45 @@ exports.verifyToken = async (req, res) => {
   }
 };
 
+exports.verifyOtp = async (req, res) => {
+  try {
+    const { email, otp } = req.body;
+
+    if (!email || !otp) {
+      return res.status(400).json({ error: "Email and OTP are required" });
+    }
+
+    const user = await User.findOne({ where: { email } });
+
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    // Check if OTP is correct
+    if (user.otp !== otp) {
+      return res.status(400).json({ error: "Invalid OTP" });
+    }
+
+    // Check if OTP is expired
+    if (new Date() > user.otpExpiresAt) {
+      return res.status(400).json({ error: "OTP has expired" });
+    }
+
+    // Mark user as verified (optional)
+    user.is_verified = true;
+    user.otp = null;
+    user.otpExpiresAt = null;
+
+    await user.save();
+
+    res.status(200).json({ message: "OTP verified successfully", user });
+       // ✅ Send Email
+        await sendAccountActivationPendingEmail(user.email, user.name);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
 exports.forgotPassword = async (req, res) => {
   try {
     const { email, phone_number } = req.body;
@@ -265,6 +310,50 @@ exports.forgotPassword = async (req, res) => {
   } catch (err) {
     console.error("Forgot Password Error:", err);
     res.status(500).json({ error: "Internal server error." });
+  }
+};
+
+exports.resendOTP = async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    const user = await User.findOne({ where: { email } });
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found." });
+    }
+
+    const now = new Date();
+
+    // Check if 30 seconds have passed since the last OTP was sent
+    if (user.last_otp_sent_at && (now - new Date(user.last_otp_sent_at)) < 30 * 1000) {
+      const secondsLeft = 30 - Math.floor((now - new Date(user.last_otp_sent_at)) / 1000);
+      return res.status(429).json({
+        message: `Please wait ${secondsLeft} second(s) before requesting a new OTP.`
+      });
+    }
+
+    const newOTP = generateOTP();
+    const otpExpiry = new Date(now.getTime() + 5 * 60 * 1000); // 5 minutes expiry
+
+    // Update user with new OTP and timestamps
+    user.otp = newOTP;
+    user.otp_expiry = otpExpiry;
+    user.last_otp_sent_at = now;
+    await user.save();
+
+    // Send the OTP via email
+    await sendOTPEmail(user.email, newOTP);
+
+    res.status(200).json({
+      message: "OTP resent successfully.",
+      otp_sent_at: now,
+      expires_in: "5 minutes"
+    });
+
+  } catch (err) {
+    console.error("Error resending OTP:", err);
+    res.status(500).json({ message: "Internal server error." });
   }
 };
 
@@ -309,45 +398,3 @@ exports.changePassword = async (req, res) => {
   }
 };
 
-exports.verifyToken = async (req, res) => {
-  try {
-    const token = req.headers["authorization"];
-
-    if (!token) {
-      return res
-        .status(401)
-        .json({ error: "Access denied. No token provided." });
-    }
-
-    const formattedToken = token.startsWith("Bearer ") ? token.slice(7) : token;
-
-    jwt.verify(
-      formattedToken,
-      process.env.JWT_SECRET || "default_secret",
-      async (err, decoded) => {
-        if (err) {
-          return res.status(401).json({ error: "Invalid token." });
-        }
-
-        // Fetch full user details from the database using decoded ID
-        const user = await User.findOne({
-          where: { id: decoded.id }, // Assuming your User model has an 'id' field
-          attributes: { exclude: ["password"] }, // Exclude password for security
-        });
-
-        if (!user) {
-          return res.status(404).json({ error: "User not found." });
-        }
-
-        res.status(200).json({
-          message: "Token verified successfully.",
-          user,
-        });
-      }
-    );
-  } catch (err) {
-    res
-      .status(500)
-      .json({ error: "Internal server error.", details: err.message });
-  }
-};

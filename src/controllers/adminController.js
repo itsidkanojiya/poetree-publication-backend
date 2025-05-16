@@ -147,7 +147,7 @@ exports.activateUser = async (req, res) => {
     user.is_verified = 1;
     await user.save();
 
-await sendActivationStatusEmail(user.email, user.name, true);
+    await sendActivationStatusEmail(user.email, user.name, true);
 
     res.status(200).json({ message: "User activated successfully", user });
   } catch (err) {
