@@ -3,8 +3,11 @@ const jwt = require("jsonwebtoken");
 const User = require("../models/User");
 const { Op } = require("sequelize");
 const { Subject, SubjectTitle } = require("../models/Subjects");
+const {sendOTPEmail,sendNewPasswordEmail,sendAccountActivationPendingEmail } = require("../utils/sendOTPEmail");
 
-// Sign Up
+const generateOTP = () => Math.floor(100000 + Math.random() * 900000).toString(); // e.g. 6-digit
+const generateRandomPassword = () =>
+  Math.random().toString(36).slice(-8);
 exports.signup = async (req, res) => {
   try {
     const {
@@ -20,12 +23,11 @@ exports.signup = async (req, res) => {
       school_principal_name,
       subject,
       subject_title,
-      standard: userstandards, // Accept standard array
+      standard: userstandards,
     } = req.body;
 
-    // Check if email or username already exists
     const existingUser = await User.findOne({
-      where: { [Op.or]: [{ email }, { username }] }, // Use Op for Sequelize operators
+      where: { [Op.or]: [{ email }, { username }] },
     });
 
     if (existingUser) {
@@ -34,13 +36,9 @@ exports.signup = async (req, res) => {
         .json({ message: "Email or Username already exists." });
     }
 
-    // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
+    const otp = generateOTP();
 
-    // Default OTP
-    const otp = "1234";
-
-    // Create user
     const newUser = await User.create({
       name,
       email,
@@ -55,7 +53,7 @@ exports.signup = async (req, res) => {
       school_principal_name,
       subject,
       subject_title,
-      standard: userstandards, // Save standard array
+      standard: userstandards,
       otp,
     });
 
@@ -71,17 +69,15 @@ exports.signup = async (req, res) => {
 
     const createdUserWithSubject = await User.findOne({
       where: { id: newUser.id },
-      include: [
-        {
-          model: Subject,
-          attributes: ["subject_id", "subject_name"], // choose fields you want
-        },
-      ],
+      include: [{ model: Subject, attributes: ["subject_id", "subject_name"] }],
     });
 
+    // ✅ Send OTP Email
+    await sendOTPEmail(email, otp);
+
     res.status(201).json({
-      message: "OTP Sent successfully.",
-      token: generateToken(newUser), // Generate token on successful signup
+      message: "Signup successful. OTP sent to email.",
+      token: generateToken(newUser),
       user: {
         createdUserWithSubject,
         id: newUser.id,
@@ -95,8 +91,8 @@ exports.signup = async (req, res) => {
         school_address_pincode: newUser.school_address_pincode,
         school_address_city: newUser.school_address_city,
         school_principal_name: newUser.school_principal_name,
-        subject: subjectData.subject_name,
-        subject_title: subjectTitleData.title_name,
+        subject: subjectData?.subject_name,
+        subject_title: subjectTitleData?.title_name,
         standard: newUser.standard,
         is_verified: newUser.is_verified,
         is_number_verified: newUser.is_number_verified,
@@ -107,6 +103,8 @@ exports.signup = async (req, res) => {
     res.status(500).json({ message: "Internal server error." });
   }
 };
+
+
 
 exports.login = async (req, res) => {
   try {
@@ -193,56 +191,80 @@ const generateToken = (user) => {
 };
 
 // Verify OTP
-exports.verifyOtp = async (req, res) => {
+exports.verifyToken = async (req, res) => {
   try {
-    const { usernameOrPhone, otp } = req.body;
+    const token = req.headers["authorization"];
 
-    // Validate input
-    if (!usernameOrPhone || !otp) {
+    if (!token) {
       return res
-        .status(400)
-        .json({ message: "Username or Phone Number and OTP are required." });
+        .status(401)
+        .json({ error: "Access denied. No token provided." });
     }
 
-    // Query the database, checking both username and phone_number fields
-    const user = await User.findOne({
-      where: {
-        [Op.or]: [
-          { username: usernameOrPhone },
-          { phone_number: usernameOrPhone },
-        ],
-      },
-    });
+    const formattedToken = token.startsWith("Bearer ") ? token.slice(7) : token;
 
-    // Check if the user exists and OTP matches
-    if (user && user.otp === otp) {
-      //  user.otp = null; // Clear OTP after verification
-      //   await user.save();
-      res.json({ message: "OTP verified successfully." });
-    } else {
-      res.status(400).json({ message: "Invalid OTP." });
-    }
+    jwt.verify(
+      formattedToken,
+      process.env.JWT_SECRET || "default_secret",
+      async (err, decoded) => {
+        if (err) {
+          return res.status(401).json({ error: "Invalid token." });
+        }
+
+        const user = await User.findOne({
+          where: { id: decoded.id },
+          attributes: { exclude: ["password"] },
+        });
+
+        if (!user) {
+          return res.status(404).json({ error: "User not found." });
+        }
+
+        // ✅ Send Email
+        await sendAccountActivationPendingEmail(user.email, user.name);
+
+        res.status(200).json({
+          message: "Token verified successfully. An email has been sent about account activation.",
+          user,
+        });
+      }
+    );
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res
+      .status(500)
+      .json({ error: "Internal server error.", details: err.message });
   }
 };
 
-// Forgot Password
 exports.forgotPassword = async (req, res) => {
   try {
     const { email, phone_number } = req.body;
+
     const user = await User.findOne({
       where: { [Op.or]: [{ email }, { phone_number }] },
     });
-    if (user) {
-      user.otp = "1234"; // Static OT P for now
-      await user.save();
-      res.json({ message: "OTP sent for password reset." });
-    } else {
-      res.status(404).json({ message: "User not found." });
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found." });
     }
+
+    const newPassword = generateRandomPassword();
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    user.password = hashedPassword;
+    await user.save();
+
+    // Send new password on email
+    await sendNewPasswordEmail(
+      user.email,
+      newPassword,
+    );
+
+    res.json({
+      message: "A new password has been sent to your email.",
+    });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("Forgot Password Error:", err);
+    res.status(500).json({ error: "Internal server error." });
   }
 };
 

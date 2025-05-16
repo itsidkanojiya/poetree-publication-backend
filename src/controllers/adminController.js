@@ -3,6 +3,8 @@ const express = require("express");
 const { Op } = require("sequelize");
 const moment = require("moment");
 const { Subject, SubjectTitle } = require("../models/Subjects");
+const { sendActivationStatusEmail } = require("../utils/sendOTPEmail.js");
+
 
 exports.getAllUser = async (req, res) => {
   try {
@@ -15,10 +17,9 @@ exports.getAllUser = async (req, res) => {
       users.map(async (user) => {
         // Fetch subject
         const subjectData = await Subject.findOne({
-          where: { subject_id: user.subject },
+          where: { subject_id: user.subject },                                                                           
           attributes: ["subject_name"],
         });
-
         // Fetch subject title
         const subjectTitleData = await SubjectTitle.findOne({
           where: { subject_title_id: user.subject_title },
@@ -136,38 +137,44 @@ exports.getAllDeActivateUser = async (req, res) => {
 };
 exports.activateUser = async (req, res) => {
   try {
-    const { id } = req.params; // Get user ID from request params
+    const { id } = req.params;
 
-    const user = await User.findByPk(id); // Find user by primary key
+    const user = await User.findByPk(id);
     if (!user) {
       return res.status(404).json({ error: "User not found" });
     }
 
-    user.is_verified = 1; // Update is_verified field
-    await user.save(); // Save changes
+    user.is_verified = 1;
+    await user.save();
+
+await sendActivationStatusEmail(user.email, user.name, true);
 
     res.status(200).json({ message: "User activated successfully", user });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 };
+
 exports.deActivateUser = async (req, res) => {
   try {
-    const { id } = req.params; // Get user ID from request params
+    const { id } = req.params;
 
-    const user = await User.findByPk(id); // Find user by primary key
+    const user = await User.findByPk(id);
     if (!user) {
       return res.status(404).json({ error: "User not found" });
     }
 
-    user.is_verified = 0; // Update is_verified field
-    await user.save(); // Save changes
+    user.is_verified = 0;
+    await user.save();
+
+await sendActivationStatusEmail(user.email, user.name, true);
 
     res.status(200).json({ message: "User deactivated successfully", user });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 };
+
 exports.deleteUser = async (req, res) => {
   try {
     const { id } = req.params; // Get user ID from request params
