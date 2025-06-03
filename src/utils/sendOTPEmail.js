@@ -79,6 +79,7 @@ const sendAccountActivationPendingEmail = async (to, name) => {
 
   return transporter.sendMail(mailOptions);
 };
+
 const sendActivationStatusEmail = async (to, name, isActivated) => {
   const subject = isActivated
     ? "Your Poetree Account Has Been Activated"
@@ -104,7 +105,6 @@ const sendActivationStatusEmail = async (to, name, isActivated) => {
 
   return transporter.sendMail(mailOptions);
 };
-
 
 module.exports = {
   sendOTPEmail,

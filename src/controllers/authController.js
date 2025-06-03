@@ -241,7 +241,6 @@ exports.verifyToken = async (req, res) => {
       .json({ error: "Internal server error.", details: err.message });
   }
 };
-
 exports.verifyOtp = async (req, res) => {
   try {
     const { email, otp } = req.body;
@@ -262,21 +261,28 @@ exports.verifyOtp = async (req, res) => {
     }
 
     // Check if OTP is expired
-    if (new Date() > user.otpExpiresAt) {
+    if (new Date() > new Date(user.otp_expiry)) {
       return res.status(400).json({ error: "OTP has expired" });
     }
 
-    // Mark user as verified (optional)
-    user.is_verified = true;
+    // ✅ Mark user as verified
+    user.is_number_verified = 1;
     user.otp = null;
-    user.otpExpiresAt = null;
+    user.otp_expiry = null;
 
-    await user.save();
+    await user.save({
+      fields: ["is_number_verified", "otp", "otp_expiry"]
+    });
 
-    res.status(200).json({ message: "OTP verified successfully", user });
-       // ✅ Send Email
-        await sendAccountActivationPendingEmail(user.email, user.name);
+    // Optional: send success email
+    await sendAccountActivationPendingEmail(user.email, user.name);
+
+    res.status(200).json({
+      message: "OTP verified successfully",
+      user
+    });
   } catch (err) {
+    console.error("Error in verifyOtp:", err);
     res.status(500).json({ error: err.message });
   }
 };
@@ -338,8 +344,8 @@ exports.resendOTP = async (req, res) => {
 
     // Update user with new OTP and timestamps
     user.otp = newOTP;
-    user.otp_expiry = otpExpiry;
-    user.last_otp_sent_at = now;
+    // user.otp_expiry = otpExpiry;
+    // user.last_otp_sent_at = now;
     await user.save();
 
     // Send the OTP via email
