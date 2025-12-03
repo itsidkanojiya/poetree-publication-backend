@@ -1,15 +1,36 @@
  
 const express = require('express');
-const { signup, verifyOtp, forgotPassword, changePassword , login,verifyToken,getProfile,resendOTP} = require('../controllers/authController');
+const { 
+  signup, 
+  verifyOtp, 
+  forgotPassword, 
+  changePassword, 
+  login,
+  verifyToken,
+  getProfile,
+  resendOTP,
+  getMySelections,
+  getMyPendingSelections,
+  getMyApprovedSelections,
+  updateMySelections,
+} = require('../controllers/authController');
+const verifyTokenMiddleware = require('../middlewares/verifyToken');
 
 const router = express.Router();
 
+// Public routes
 router.post('/signup', signup);
 router.post('/login', login);
 router.post('/verify-otp', verifyOtp);
 router.post('/resend-otp', resendOTP);
 router.post('/forgot-password', forgotPassword);
-router.post('/change-password', changePassword);
 router.get('/verify-token', verifyToken);
-// router.get('/profile', getProfile);
+
+// Protected routes (require authentication)
+router.post('/change-password', verifyTokenMiddleware, changePassword);
+router.get('/my-selections', verifyTokenMiddleware, getMySelections);
+router.get('/my-selections/pending', verifyTokenMiddleware, getMyPendingSelections);
+router.get('/my-selections/approved', verifyTokenMiddleware, getMyApprovedSelections);
+router.put('/my-selections', verifyTokenMiddleware, updateMySelections);
+
 module.exports = router;

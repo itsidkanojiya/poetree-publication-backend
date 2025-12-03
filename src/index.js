@@ -22,21 +22,30 @@ app.use(cors());
 app.use(express.static(path.join(__dirname, '../client')));
 
 
+// Static files (must be before API routes to avoid conflicts)
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
 console.log('Serving static files from:', path.join(__dirname, '../uploads'));
 
-// Use the auth routes
-app.use('/auth', authRoutes);
-app.use('/', subjectRoutes);
-app.use('/catalogue', catalogueRoutes); 
-app.use('/worksheets', worksheetRoutes);
-app.use('/answersheets', answerSheetRoutes);
-app.use('/headers', headerRoutes);
-app.use('/papers', paperRoutes);
-app.use('/admin',adminRoutes );
-app.use('/question',questionRoutes );
-app.get('*', (req, res) => {
+// API Routes (must be before catch-all route)
+app.use('/api/auth', authRoutes);
+app.use('/api', subjectRoutes);
+app.use('/api/catalogue', catalogueRoutes); 
+app.use('/api/worksheets', worksheetRoutes);
+app.use('/api/answersheets', answerSheetRoutes);
+app.use('/api/headers', headerRoutes);
+app.use('/api/papers', paperRoutes);
+app.use('/api/admin', adminRoutes);
+app.use('/api/question', questionRoutes);
+
+// Static files for client (only for non-API routes)
+app.use(express.static(path.join(__dirname, '../client')));
+
+// Catch-all route for frontend (must be last, and exclude API routes)
+app.get('*', (req, res, next) => {
+  // Don't serve HTML for API routes
+
+  console.log(`[${new Date().toISOString()}] Frontend route accessed: ${req.originalUrl}`);
   res.sendFile(path.join(__dirname, '../client', 'index.html'));
 });
 
@@ -44,3 +53,4 @@ const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => {
     console.log(`Server is running on http://localhost:${PORT}`);
 })
+

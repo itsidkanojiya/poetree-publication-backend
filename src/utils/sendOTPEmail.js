@@ -1,19 +1,20 @@
 const nodemailer = require("nodemailer");
 
+// Gmail SMTP Configuration
 const transporter = nodemailer.createTransport({
-  host: "smtp-relay.brevo.com",
+  service: "gmail",
+  host: "smtp.gmail.com",
   port: 587,
-  secure: false,
+  secure: false, // true for 465, false for other ports
   auth: {
-  user: process.env.BREVO_USER,
-  pass: process.env.BREVO_PASS,
-}
-
+    user: process.env.GMAIL_USER, // Your Gmail address
+    pass: process.env.GMAIL_APP_PASSWORD, // Gmail App Password (not regular password)
+  },
 });
 
 const sendOTPEmail = async (to, otp) => {
   const mailOptions = {
-    from: `"Poetree Publications" <${process.env.BREVO_EMAIL}>`,
+    from: `"Poetree Publications" <${process.env.GMAIL_USER}>`,
     to,
     subject: "Your OTP for Poetree Signup",
     html: `
@@ -36,7 +37,7 @@ const sendOTPEmail = async (to, otp) => {
 
 const sendNewPasswordEmail = async (to, newPassword) => {
   const mailOptions = {
-    from: `"Poetree Publications" <${process.env.BREVO_EMAIL}>`,
+    from: `"Poetree Publications" <${process.env.GMAIL_USER}>`,
     to,
     subject: "Your New Password for Poetree Account",
     html: `
@@ -59,7 +60,7 @@ const sendNewPasswordEmail = async (to, newPassword) => {
 
 const sendAccountActivationPendingEmail = async (to, name) => {
   const mailOptions = {
-    from: `"Poetree Publications" <${process.env.BREVO_EMAIL}>`,
+    from: `"Poetree Publications" <${process.env.GMAIL_USER}>`,
     to,
     subject: "Account Activation in Process",
     html: `
@@ -90,7 +91,7 @@ const sendActivationStatusEmail = async (to, name, isActivated) => {
     : `<p style="font-size: 16px; color: #e74c3c;">Your account has been <strong>deactivated</strong>. If you believe this is a mistake, please contact support.</p>`;
 
   const mailOptions = {
-    from: `"Poetree Publications" <${process.env.BREVO_EMAIL}>`,
+    from: `"Poetree Publications" <${process.env.GMAIL_USER}>`,
     to,
     subject,
     html: `

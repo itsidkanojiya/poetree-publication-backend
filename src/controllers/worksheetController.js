@@ -106,7 +106,7 @@ exports.getAllWorkSheets = async (req, res) => {
         ? sheet.subject_title.title_name
         : null,
       board: sheet.board ? sheet.board.board_name : null,
-      worksheet_url:  `${baseUrl}/${sheet.worksheetCoverLink}` ,
+      worksheet_url:  `${baseUrl}/${sheet.worksheet_url}` ,
       worksheet_coverlink: `${baseUrl}/${sheet.worksheet_coverlink}` ,
     }));
 

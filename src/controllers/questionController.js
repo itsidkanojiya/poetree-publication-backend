@@ -1,6 +1,7 @@
 const Question = require("../models/Question");
 const fs = require("fs");
 const path = require("path");
+const { Op } = require("sequelize");
 const { Subject, SubjectTitle, Boards } = require("../models/Subjects");
 Question.belongsTo(Subject, { foreignKey: "subject_id", as: "subject" });
 Question.belongsTo(SubjectTitle, {
@@ -209,19 +210,97 @@ exports.deleteQuestion = async (req, res) => {
 
 exports.getAllQuestions = async (req, res) => {
   try {
-    const { subject_id, standard: standardLevel, board_id, type , marks} = req.query;
+    const { 
+      subject_id, 
+      subject_title_id,
+      standard, 
+      board_id, 
+      type, 
+      marks 
+    } = req.query;
 
-    // Build query dynamically
+    // Build query dynamically with support for arrays
     const query = {};
-    if (subject_id) query.subject_id = subject_id;
-    if (standardLevel) query.standard = standardLevel;
-    if (board_id) query.board_id = board_id;
-    if (type) query.type = type;
-    if (marks) query.marks = marks;
+    
+    // Filter by subject_id (supports single value or comma-separated values)
+    if (subject_id) {
+      const subjectIds = Array.isArray(subject_id) 
+        ? subject_id 
+        : subject_id.split(',').map(id => parseInt(id.trim())).filter(id => !isNaN(id));
+      if (subjectIds.length === 1) {
+        query.subject_id = subjectIds[0];
+      } else if (subjectIds.length > 1) {
+        query.subject_id = { [Op.in]: subjectIds };
+      }
+    }
+
+    // Filter by subject_title_id (supports single value or comma-separated values)
+    if (subject_title_id) {
+      const subjectTitleIds = Array.isArray(subject_title_id)
+        ? subject_title_id
+        : subject_title_id.split(',').map(id => parseInt(id.trim())).filter(id => !isNaN(id));
+      if (subjectTitleIds.length === 1) {
+        query.subject_title_id = subjectTitleIds[0];
+      } else if (subjectTitleIds.length > 1) {
+        query.subject_title_id = { [Op.in]: subjectTitleIds };
+      }
+    }
+
+    // Filter by standard (std) - supports single value or comma-separated values
+    if (standard) {
+      const standards = Array.isArray(standard)
+        ? standard
+        : standard.split(',').map(std => parseInt(std.trim())).filter(std => !isNaN(std));
+      if (standards.length === 1) {
+        query.standard = standards[0];
+      } else if (standards.length > 1) {
+        query.standard = { [Op.in]: standards };
+      }
+    }
+
+    // Filter by board_id (supports single value or comma-separated values)
+    if (board_id) {
+      const boardIds = Array.isArray(board_id)
+        ? board_id
+        : board_id.split(',').map(id => parseInt(id.trim())).filter(id => !isNaN(id));
+      if (boardIds.length === 1) {
+        query.board_id = boardIds[0];
+      } else if (boardIds.length > 1) {
+        query.board_id = { [Op.in]: boardIds };
+      }
+    }
+
+    // Filter by question type (supports single value or comma-separated values)
+    if (type) {
+      const types = Array.isArray(type)
+        ? type
+        : type.split(',').map(t => t.trim()).filter(t => t);
+      if (types.length === 1) {
+        query.type = types[0];
+      } else if (types.length > 1) {
+        query.type = { [Op.in]: types };
+      }
+    }
+
+    // Filter by marks (supports single value or comma-separated values)
+    if (marks) {
+      const marksArray = Array.isArray(marks)
+        ? marks
+        : marks.split(',').map(m => parseInt(m.trim())).filter(m => !isNaN(m));
+      if (marksArray.length === 1) {
+        query.marks = marksArray[0];
+      } else if (marksArray.length > 1) {
+        query.marks = { [Op.in]: marksArray };
+      }
+    }
+
+    console.log('[getAllQuestions] Query filters:', JSON.stringify(query, null, 2));
 
     const questions = await Question.findAll({
       attributes: [
         "question_id",
+        "subject_id",
+        "subject_title_id",
         "standard",
         "question",
         "answer",
@@ -229,45 +308,87 @@ exports.getAllQuestions = async (req, res) => {
         "type",
         "options",
         "image_url",
-        "marks"
+        "marks",
+        "board_id"
       ],
       where: query, // Apply filters here
       include: [
         {
           model: Subject,
           as: "subject",
-          attributes: ["subject_name"],
+          attributes: ["subject_id", "subject_name"],
         },
         {
           model: SubjectTitle,
           as: "subject_title",
-          attributes: ["title_name"],
+          attributes: ["subject_title_id", "title_name"],
         },
         {
           model: Boards,
           as: "board",
-          attributes: ["board_name"],
+          attributes: ["board_id", "board_name"],
         },
       ],
     });
 
-    const baseUrl = `${req.protocol}://${req.get("host")}`; // Example: http://localhost:5000
+    const baseUrl = `${req.protocol}://${req.get("host")}`;
 
     // Flatten the response and ensure full image URLs
-    const formattedQuestions = questions.map((q) => ({
-      ...q.toJSON(),
-      subject: q.subject ? q.subject.subject_name : null,
-      subject_title: q.subject_title ? q.subject_title.title_name : null,
-      board: q.board ? q.board.board_name : null,
-      options: q.options ? JSON.parse(q.options) : null, // Parse options if stored as JSON
-      marks: q.marks ? JSON.parse(q.marks) : null, // Parse options if stored as JSON
-      image_url: q.image_url ? `${baseUrl}${q.image_url}` : null, // Convert relative path to full URL
-    }));
+    const formattedQuestions = questions.map((q) => {
+      const questionData = q.toJSON();
+      
+      // Parse options if it's a JSON string
+      let parsedOptions = null;
+      if (questionData.options) {
+        try {
+          parsedOptions = typeof questionData.options === 'string' 
+            ? JSON.parse(questionData.options) 
+            : questionData.options;
+        } catch (e) {
+          console.warn('[getAllQuestions] Failed to parse options:', e.message);
+          parsedOptions = questionData.options;
+        }
+      }
 
-    res.status(200).json(formattedQuestions);
+      return {
+        question_id: questionData.question_id,
+        subject_id: questionData.subject_id,
+        subject_title_id: questionData.subject_title_id,
+        standard: questionData.standard,
+        question: questionData.question,
+        answer: questionData.answer,
+        solution: questionData.solution,
+        type: questionData.type,
+        options: parsedOptions,
+        marks: questionData.marks, // Already an integer, no need to parse
+        board_id: questionData.board_id,
+        subject: q.subject ? {
+          subject_id: q.subject.subject_id,
+          subject_name: q.subject.subject_name
+        } : null,
+        subject_title: q.subject_title ? {
+          subject_title_id: q.subject_title.subject_title_id,
+          title_name: q.subject_title.title_name
+        } : null,
+        board: q.board ? {
+          board_id: q.board.board_id,
+          board_name: q.board.board_name
+        } : null,
+        image_url: questionData.image_url ? `${baseUrl}/${questionData.image_url}` : null,
+      };
+    });
+
+    res.status(200).json({
+      success: true,
+      count: formattedQuestions.length,
+      questions: formattedQuestions
+    });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: err.message });
+    console.error('[getAllQuestions] Error:', err);
+    res.status(500).json({ 
+      success: false,
+      error: err.message 
+    });
   }
 };
 

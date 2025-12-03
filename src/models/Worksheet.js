@@ -6,6 +6,7 @@ const Worksheet = sequelize.define('worksheet', {
         type: DataTypes.INTEGER,
         primaryKey: true,
         autoIncrement: true,
+        
     },
     subject_id: {
         type: DataTypes.INTEGER,
