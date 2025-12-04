@@ -1,0 +1,13 @@
+[build]
+  # Build command that exits quickly - no server should start during build
+  command = "npm run build"
+  # Publish directory for frontend static files
+  publish = "client"
+  # Functions directory (if using serverless functions)
+  functions = "netlify/functions"
+
+[build.environment]
+  NODE_VERSION = "18"
+  # Set NETLIFY=true to prevent database connection during build
+  NETLIFY = "true"
+  NODE_ENV = "build"

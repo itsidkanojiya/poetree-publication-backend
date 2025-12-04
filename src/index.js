@@ -49,8 +49,22 @@ app.get('*', (req, res, next) => {
   res.sendFile(path.join(__dirname, '../client', 'index.html'));
 });
 
-const PORT = process.env.PORT || 4000;
-app.listen(PORT, () => {
-    console.log(`Server is running on http://localhost:${PORT}`);
-})
+// Only start server if not in build environment
+// This prevents server from starting during Netlify build
+if (process.env.NETLIFY !== 'true' && process.env.NODE_ENV !== 'build') {
+    // Initialize database connection when server starts
+    const sequelize = require('./config/db');
+    
+    // Connect to database on server startup
+    if (sequelize.connectDB) {
+        sequelize.connectDB();
+    }
+
+    const PORT = process.env.PORT || 4000;
+    app.listen(PORT, () => {
+        console.log(`Server is running on http://localhost:${PORT}`);
+    });
+}
+
+module.exports = app;
 

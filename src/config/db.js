@@ -16,21 +16,27 @@ const sequelize = new Sequelize(
     }
 );
 
-// Test the connection
+// Test the connection - only connect when explicitly called, not at module load
+// This prevents database connection during Netlify build
 const connectDB = async () => {
     try {
         await sequelize.authenticate();
         console.log('✅ Database connected successfully.');
 
         // Sync models (optional: only if you want to sync)
-        await sequelize.sync();
-        console.log('✅ Models synced successfully.');
+        // Only sync in runtime, not during build
+        if (process.env.NETLIFY !== 'true' && process.env.NODE_ENV !== 'build') {
+            await sequelize.sync();
+            console.log('✅ Models synced successfully.');
+        }
 
     } catch (error) {
         console.error('❌ Unable to connect to the database:', error.message);
     }
 };
 
-connectDB();
+// Export connectDB function
+sequelize.connectDB = connectDB;
 
+// Export sequelize instance (default export for models)
 module.exports = sequelize;

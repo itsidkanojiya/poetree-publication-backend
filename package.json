@@ -5,7 +5,8 @@
   "scripts": {
     "test": "jest --verbose --coverage",
     "start": "node src/index.js",
-    "dev": "nodemon index.js"
+    "dev": "nodemon index.js",
+    "build": "echo 'Build complete - no build step needed for Node.js backend'"
   },
   "keywords": [],
   "author": "",
