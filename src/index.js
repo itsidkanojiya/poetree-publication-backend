@@ -38,6 +38,15 @@ app.use('/api/papers', paperRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/question', questionRoutes);
 
+// Test endpoint to verify backend is working
+app.get('/test', (req, res) => {
+    res.json({ 
+        message: 'test is done',
+        status: 'success',
+        timestamp: new Date().toISOString()
+    });
+});
+
 // Static files for client (only for non-API routes)
 app.use(express.static(path.join(__dirname, '../client')));
 
