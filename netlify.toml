@@ -12,15 +12,14 @@
   NETLIFY = "true"
   NODE_ENV = "build"
 
-# Redirect /test to the test function
+# Redirect all API routes to serverless function (Express app wrapper)
 [[redirects]]
-  from = "/test"
-  to = "/.netlify/functions/test"
+  from = "/api/*"
+  to = "/.netlify/functions/serverless"
   status = 200
 
-# Redirect all API routes to serverless function (if you want to use the full Express app)
-# Uncomment this if you want to use the serverless.js wrapper for all API routes
-# [[redirects]]
-#   from = "/api/*"
-#   to = "/.netlify/functions/serverless"
-#   status = 200
+# Redirect /test to serverless function
+[[redirects]]
+  from = "/test"
+  to = "/.netlify/functions/serverless"
+  status = 200
