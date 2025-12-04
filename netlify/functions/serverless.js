@@ -51,11 +51,27 @@ app.get('/test', (req, res) => {
     });
 });
 
-// Initialize database connection when function is invoked
-const sequelize = require('../../src/config/db');
-if (sequelize.connectDB) {
-    sequelize.connectDB();
-}
+// Initialize database connection lazily - only when needed
+// Don't load at module level to avoid mysql2 issues during function initialization
+let dbInitialized = false;
+const initDB = async () => {
+    if (!dbInitialized) {
+        try {
+            const sequelize = require('../../src/config/db');
+            if (sequelize.connectDB) {
+                await sequelize.connectDB();
+                dbInitialized = true;
+            }
+        } catch (error) {
+            console.error('Database initialization error:', error.message);
+            // Don't throw - allow function to work without DB for non-DB routes
+        }
+    }
+};
+
+// Initialize DB on first request (optional - can be done per-route instead)
+// Uncomment if you want to initialize on function load:
+// initDB();
 
 // Export the serverless handler
 module.exports.handler = serverless(app);

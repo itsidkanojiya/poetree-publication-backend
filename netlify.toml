@@ -1,6 +1,7 @@
 [build]
   # Build command that exits quickly - no server should start during build
-  command = "npm run build"
+  # Ensure mysql2 is installed and compiled for Lambda runtime
+  command = "npm install && npm run build"
   # Publish directory for frontend static files
   publish = "client"
   # Functions directory (if using serverless functions)
