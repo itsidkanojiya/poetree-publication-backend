@@ -99,6 +99,19 @@ const Paper = sequelize.define('papers', {
     type: DataTypes.INTEGER,
     allowNull: true,
     defaultValue: 0,
+  },
+  template_paper_id: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    references: {
+      model: 'papers',
+      key: 'id'
+    }
+  },
+  is_template: {
+    type: DataTypes.BOOLEAN,
+    allowNull: false,
+    defaultValue: false,
   }
 }, {
   tableName: 'papers',

@@ -33,12 +33,19 @@ exports.addQuestion = async (req, res) => {
         }
 
         // Validate question type
-        if (!['mcq', 'short', 'long', 'blank', 'onetwo', 'truefalse'].includes(type)) {
+        if (!['mcq', 'short', 'long', 'blank', 'onetwo', 'truefalse', 'passage', 'match'].includes(type)) {
             return res.status(400).json({ error: "Invalid question type" });
         }
 
-        // Handle options properly
-        const formattedOptions = options ? (Array.isArray(options) ? JSON.stringify(options) : options) : null;
+        // Handle options properly - stringify if it's an array or object, otherwise use as-is (if already stringified)
+        let formattedOptions = null;
+        if (options) {
+            if (Array.isArray(options) || (typeof options === 'object' && options !== null)) {
+                formattedOptions = JSON.stringify(options);
+            } else if (typeof options === 'string') {
+                formattedOptions = options; // Already stringified
+            }
+        }
 
         // Get the uploaded image path safely
         const image_url = req.file?.filename ? `uploads/question/${type}/${req.file.filename}` : null;
@@ -61,54 +68,7 @@ exports.addQuestion = async (req, res) => {
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: err.message });
-    // Validate required fields
-    if (
-      !subject_title_id ||
-      !subject_id ||
-      !standardLevel ||
-      !board_id ||
-      !question || !marks ||
-      !answer ||
-      !type
-    ) {
-      return res.status(400).json({ error: "Missing required fields" });
     }
-
-    // Validate question type
-    if (!["mcq", "short", "long", "blank", "onetwo"].includes(type)) {
-      return res.status(400).json({ error: "Invalid question type" });
-    }
-
-    // Handle options properly
-    const formattedOptions = options
-      ? Array.isArray(options)
-        ? JSON.stringify(options)
-        : options
-      : null;
-
-    // Get the uploaded image path safely
-    const image_url = req.file?.filename
-      ? `uploads/question/${type}/${req.file.filename}`
-      : null;
-
-    // Create the question
-    const newQuestion = await Question.create({
-      subject_title_id,
-      subject_id,
-      standard: standardLevel,
-      board_id,
-      question,
-      answer,marks,
-      solution,
-      type,
-      options: formattedOptions,
-      image_url, // Save full image path
-    });
-
-    res
-      .status(201)
-      .json({ message: "Question added successfully", question: newQuestion });
-  }
 };
 
 exports.editQuestion = async (req, res) => {
@@ -149,6 +109,16 @@ exports.editQuestion = async (req, res) => {
       image_url = `/uploads/question/${type}/${req.file.filename}`;
     }
 
+    // Handle options properly - stringify if it's an array or object
+    let formattedOptions = null;
+    if (options) {
+      if (Array.isArray(options) || (typeof options === 'object' && options !== null)) {
+        formattedOptions = JSON.stringify(options);
+      } else if (typeof options === 'string') {
+        formattedOptions = options; // Already stringified
+      }
+    }
+
     // Update the question
     await existingQuestion.update({
       subject_title_id, marks,
@@ -159,7 +129,7 @@ exports.editQuestion = async (req, res) => {
       answer,
       solution,
       type,
-      options: JSON.stringify(options), // Store options as a string
+      options: formattedOptions, // Store options as a string
       image_url,
     });
 
@@ -401,6 +371,8 @@ exports.questionAnalysis = async (req, res) => {
     const truefalse = await Question.count({ where: { type: "truefalse" } });
     const blank = await Question.count({ where: { type: "blank" } });
     const onetwo = await Question.count({ where: { type: "onetwo" } });
+    const passage = await Question.count({ where: { type: "passage" } });
+    const match = await Question.count({ where: { type: "match" } });
 
     res.json({
       total,
@@ -410,6 +382,8 @@ exports.questionAnalysis = async (req, res) => {
       truefalse,
       blank,
       onetwo,
+      passage,
+      match,
     });
   } catch (error) {
     console.error("Error fetching question statistics:", error);
