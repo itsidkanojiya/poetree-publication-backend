@@ -325,6 +325,12 @@ exports.login = async (req, res) => {
     // Generate JWT
     const token = generateToken(user);
 
+    // Generate base URL for logo
+    const baseUrl = `${req.protocol}://${req.get('host')}`;
+    const logoUrl = user.logo && !user.logo.startsWith('http') 
+      ? `${baseUrl}/${user.logo}` 
+      : (user.logo || user.logo_url || null);
+
     // Response with token and user details
     res.status(200).json({
       message: "Login successful",
@@ -340,6 +346,8 @@ exports.login = async (req, res) => {
         school_address_state: user.school_address_state,
         school_address_pincode: user.school_address_pincode,
         school_address_city: user.school_address_city,
+        address: user.address, // New field
+        logo: logoUrl, // New field
         school_principal_name: user.school_principal_name,
         subject: subjectNames, // Array of subject names or null
         subject_title: subjectTitleNames, // Array of title names or null
@@ -494,6 +502,12 @@ exports.verifyOtp = async (req, res) => {
       emailSent = false;
     }
 
+    // Generate base URL for logo
+    const baseUrl = `${req.protocol}://${req.get('host')}`;
+    const logoUrl = user.logo && !user.logo.startsWith('http') 
+      ? `${baseUrl}/${user.logo}` 
+      : (user.logo || user.logo_url || null);
+
     // Return user data without password and OTP
     const userResponse = {
       id: user.id,
@@ -506,6 +520,8 @@ exports.verifyOtp = async (req, res) => {
       school_address_state: user.school_address_state,
       school_address_pincode: user.school_address_pincode,
       school_address_city: user.school_address_city,
+      address: user.address, // New field
+      logo: logoUrl, // New field
       school_principal_name: user.school_principal_name,
       is_verified: user.is_verified,
       is_number_verified: user.is_number_verified,
@@ -820,3 +836,129 @@ exports.updateMySelections = async (req, res) => {
   }
 };
 
+// Get User Profile
+exports.getProfile = async (req, res) => {
+  try {
+    const userId = req.user?.id || req.user?.user_id;
+    if (!userId) {
+      return res.status(401).json({ error: "Unauthorized. Please login." });
+    }
+
+    const user = await User.findByPk(userId);
+    if (!user) {
+      return res.status(404).json({ error: "User not found." });
+    }
+
+    // Generate base URL for logo
+    const baseUrl = `${req.protocol}://${req.get('host')}`;
+    const logoUrl = user.logo && !user.logo.startsWith('http') 
+      ? `${baseUrl}/${user.logo}` 
+      : (user.logo || user.logo_url || null);
+
+    const userResponse = {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      phone_number: user.phone_number,
+      username: user.username,
+      user_type: user.user_type,
+      school_name: user.school_name,
+      school_address_state: user.school_address_state,
+      school_address_pincode: user.school_address_pincode,
+      school_address_city: user.school_address_city,
+      address: user.address,
+      logo: logoUrl,
+      school_principal_name: user.school_principal_name,
+      is_verified: user.is_verified,
+      is_number_verified: user.is_number_verified,
+    };
+
+    res.status(200).json({ success: true, user: userResponse });
+  } catch (err) {
+    console.error("Error getting profile:", err);
+    res.status(500).json({ error: "Internal server error", details: err.message });
+  }
+};
+
+// Update User Profile
+exports.updateProfile = async (req, res) => {
+  try {
+    const userId = req.user?.id || req.user?.user_id;
+    if (!userId) {
+      return res.status(401).json({ error: "Unauthorized. Please login." });
+    }
+
+    const user = await User.findByPk(userId);
+    if (!user) {
+      return res.status(404).json({ error: "User not found." });
+    }
+
+    const {
+      name,
+      school_name,
+      school_address_state,
+      school_address_pincode,
+      school_address_city,
+      address,
+      school_principal_name,
+      logo_url,
+    } = req.body;
+
+    // Handle logo: prioritize file upload, then URL, then keep existing
+    let logoPath = user.logo; // Keep existing logo by default
+    if (req.file) {
+      logoPath = `uploads/papers/logo/${req.file.filename}`;
+    } else if (logo_url && logo_url.trim() !== '') {
+      logoPath = logo_url.trim();
+    }
+
+    // Update only provided fields
+    const updateData = {};
+    if (name !== undefined) updateData.name = name;
+    if (school_name !== undefined) updateData.school_name = school_name;
+    if (school_address_state !== undefined) updateData.school_address_state = school_address_state;
+    if (school_address_pincode !== undefined) updateData.school_address_pincode = school_address_pincode;
+    if (school_address_city !== undefined) updateData.school_address_city = school_address_city;
+    if (address !== undefined) updateData.address = address;
+    if (school_principal_name !== undefined) updateData.school_principal_name = school_principal_name;
+    if (req.file || logo_url !== undefined) {
+      updateData.logo = logoPath;
+      if (logo_url !== undefined) updateData.logo_url = logo_url && logo_url.trim() !== '' ? logo_url.trim() : null;
+    }
+
+    await user.update(updateData);
+
+    // Generate base URL for logo
+    const baseUrl = `${req.protocol}://${req.get('host')}`;
+    const logoUrl = user.logo && !user.logo.startsWith('http') 
+      ? `${baseUrl}/${user.logo}` 
+      : (user.logo || user.logo_url || null);
+
+    const userResponse = {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      phone_number: user.phone_number,
+      username: user.username,
+      user_type: user.user_type,
+      school_name: user.school_name,
+      school_address_state: user.school_address_state,
+      school_address_pincode: user.school_address_pincode,
+      school_address_city: user.school_address_city,
+      address: user.address,
+      logo: logoUrl,
+      school_principal_name: user.school_principal_name,
+      is_verified: user.is_verified,
+      is_number_verified: user.is_number_verified,
+    };
+
+    res.status(200).json({ 
+      success: true, 
+      message: "Profile updated successfully", 
+      user: userResponse 
+    });
+  } catch (err) {
+    console.error("Error updating profile:", err);
+    res.status(500).json({ error: "Internal server error", details: err.message });
+  }
+};

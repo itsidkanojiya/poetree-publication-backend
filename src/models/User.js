@@ -61,6 +61,18 @@ const User = sequelize.define('users', {
         type: DataTypes.STRING,
         allowNull: true,
     },
+    address: {
+        type: DataTypes.STRING,
+        allowNull: true,
+    },
+    logo: {
+        type: DataTypes.STRING,
+        allowNull: true,
+    },
+    logo_url: {
+        type: DataTypes.STRING,
+        allowNull: true,
+    },
     subject: {
         type: DataTypes.INTEGER,
         allowNull: true,

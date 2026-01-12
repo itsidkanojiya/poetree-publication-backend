@@ -18,7 +18,7 @@ const Paper = sequelize.define('papers', {
   },
   school_name: {
     type: DataTypes.STRING,
-    allowNull: false,
+    allowNull: true, // Now nullable - will be fetched from user table
   },
   standard: {
     type: DataTypes.INTEGER,
@@ -50,7 +50,7 @@ const Paper = sequelize.define('papers', {
   },
   logo: {
     type: DataTypes.STRING,
-    allowNull: false,
+    allowNull: true, // Now nullable - will be fetched from user table
   },
   logo_url: {
     type: DataTypes.STRING,
@@ -60,8 +60,12 @@ const Paper = sequelize.define('papers', {
     type: DataTypes.STRING,
     allowNull: false,
   },
+  paper_title: {
+    type: DataTypes.STRING,
+    allowNull: true, // Nullable - used in templates
+  },
   body: {
-    type: DataTypes.STRING, // Store an array of question IDs
+    type: DataTypes.TEXT, // Store JSON array of question IDs
     allowNull: false,
   },
   // Marks breakdown by question type
@@ -100,18 +104,14 @@ const Paper = sequelize.define('papers', {
     allowNull: true,
     defaultValue: 0,
   },
-  template_paper_id: {
-    type: DataTypes.INTEGER,
-    allowNull: true,
-    references: {
-      model: 'papers',
-      key: 'id'
-    }
-  },
   is_template: {
     type: DataTypes.BOOLEAN,
     allowNull: false,
     defaultValue: false,
+  },
+  template_metadata: {
+    type: DataTypes.TEXT,
+    allowNull: true,
   }
 }, {
   tableName: 'papers',

@@ -1,4 +1,7 @@
 const  WorkSheet  = require("../models/Worksheet");
+const UserSubjectTitle = require("../models/UserSubjectTitle");
+const path = require("path");
+const fs = require("fs");
 
 const { Subject, SubjectTitle, Boards } = require("../models/Subjects");
 // Define Associations
@@ -20,7 +23,11 @@ exports.addWorkSheet = async (req, res) => {
       board_id,
       subject_title_id,
       standard: standardLevel,
+      user_id,
     } = req.body;
+
+    // Get user_id from body or from authenticated user
+    const userId = user_id || req.user?.id || req.user?.user_id;
 
     // Check if required fields are missing
     if (!subject_id || !board_id || !subject_title_id || !standardLevel) {
@@ -50,6 +57,34 @@ console.log(worksheetCoverLink);
       board_id,
       standard: standardLevel,  // Maps to 'standard' column in DB
     });
+
+    // Create UserSubjectTitle entry if user_id is provided
+    if (userId) {
+      try {
+        // Check if UserSubjectTitle already exists
+        const existingUserSubjectTitle = await UserSubjectTitle.findOne({
+          where: {
+            user_id: userId,
+            subject_title_id: subject_title_id,
+          },
+        });
+
+        // Create UserSubjectTitle if it doesn't exist
+        if (!existingUserSubjectTitle) {
+          await UserSubjectTitle.create({
+            user_id: userId,
+            subject_id: subject_id,
+            subject_title_id: subject_title_id,
+            status: 'approved', // Auto-approved when added via worksheet
+            approved_by: req.user?.id || req.user?.user_id || null,
+            approved_at: new Date(),
+          });
+        }
+      } catch (userSubjectTitleError) {
+        // Log error but don't fail the worksheet creation
+        console.error('Error creating UserSubjectTitle:', userSubjectTitleError);
+      }
+    }
 
     // Generate base URL for the file
     const baseUrl = `${req.protocol}://${req.get('host')}`;

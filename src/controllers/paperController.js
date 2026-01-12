@@ -1,16 +1,19 @@
 const Paper = require('../models/Paper'); // Adjust path if needed
+const User = require('../models/User');
 const { SubjectTitle } = require('../models/Subjects');
-const Question = require('../models/Question');
-const UserSubject = require('../models/UserSubject');
-const UserSubjectTitle = require('../models/UserSubjectTitle');
+const Header = require('../models/Header');
 const { Op } = require('sequelize');
 const path = require("path");
 const fs = require("fs");
 
-// Define association
+// Define associations
 Paper.belongsTo(SubjectTitle, { 
     foreignKey: 'subject_title_id', 
     as: 'subjectTitle'
+});
+Paper.belongsTo(User, {
+    foreignKey: 'user_id',
+    as: 'user'
 });
 
 const allowedTypes = ["custom", "default"];
@@ -20,19 +23,17 @@ exports.addPaper = async (req, res) => {
         const { 
             user_id, 
             type, 
-            school_name, 
             standard, 
             timing, 
             date, 
             division, 
-            address, 
             subject, 
             subject_title_id,
             board, 
+            paper_title,
             body,
             student_name,
             roll_number,
-            logo_url,
             marks_mcq,
             marks_short,
             marks_long,
@@ -42,7 +43,7 @@ exports.addPaper = async (req, res) => {
         } = req.body;
 
         // Validate required fields
-        if (!user_id || !type || !school_name || !standard || !date || !subject || !board || !body) {
+        if (!user_id || !type || !standard || !date || !subject || !board || !body) {
             return res.status(400).json({ success: false, message: "Missing required fields" });
         }
 
@@ -51,12 +52,21 @@ exports.addPaper = async (req, res) => {
             return res.status(400).json({ success: false, message: "Invalid paper type. Allowed values: 'custom', 'default'." });
         }
 
-        // Handle logo: prioritize file upload, then URL, then default
+        // Fetch user to get school_name, address, and logo
+        const user = await User.findByPk(user_id);
+        if (!user) {
+            return res.status(404).json({ success: false, message: "User not found" });
+        }
+
+        // Get school_name, address, and logo from user
+        const school_name = user.school_name || null;
+        const address = user.address || null;
+        // Get logo from user - prioritize logo, then logo_url, then default
         let logo = "/uploads/1739360660741.JPG"; // Default logo
-        if (req.file) {
-            logo = `uploads/papers/logo/${req.file.filename}`;
-        } else if (logo_url && logo_url.trim() !== '') {
-            logo = logo_url.trim();
+        if (user.logo) {
+            logo = user.logo;
+        } else if (user.logo_url) {
+            logo = user.logo_url;
         }
 
         // Calculate total marks
@@ -68,24 +78,22 @@ exports.addPaper = async (req, res) => {
         const marksTruefalse = parseInt(marks_truefalse) || 0;
         const totalMarks = marksMcq + marksShort + marksLong + marksBlank + marksOnetwo + marksTruefalse;
 
-        // Determine if this is a template
-        const isTemplate = type.toLowerCase() === 'default';
-
-        // Create paper entry
+        // Create paper entry (school_name, address, logo are now nullable and stored for backward compatibility)
         const paper = await Paper.create({
             user_id,
             type,
-            school_name,
+            school_name, // From user table
             standard,
             timing: timing || null,
             date,
             division: division || null,
-            address: address || null,
+            address, // From user table
             subject,
             subject_title_id: subject_title_id ? parseInt(subject_title_id) : null,
-            logo,
-            logo_url: logo_url && logo_url.trim() !== '' ? logo_url.trim() : null,
+            logo, // From user table
+            logo_url: null, // Not used anymore
             board,
+            paper_title: paper_title || null, // For templates
             body,
             marks_mcq: marksMcq,
             marks_short: marksShort,
@@ -93,9 +101,7 @@ exports.addPaper = async (req, res) => {
             marks_blank: marksBlank,
             marks_onetwo: marksOnetwo,
             marks_truefalse: marksTruefalse,
-            total_marks: totalMarks,
-            is_template: isTemplate,
-            template_paper_id: null // Templates don't have a parent template
+            total_marks: totalMarks
         });
 
         return res.status(201).json({ success: true, message: "Paper added successfully", data: paper });
@@ -110,13 +116,40 @@ exports.getAllPapers = async (req, res) => {
     try {
         const baseUrl = `${req.protocol}://${req.get('host')}`; // Example: http://localhost:5000
 
-        const papers = await Paper.findAll();
+        const papers = await Paper.findAll({
+            include: [{
+                model: User,
+                as: 'user',
+                attributes: ['id', 'school_name', 'address', 'logo', 'logo_url'],
+                required: false
+            }]
+        });
 
-        // Format the response to include full image URLs
-        const formattedPapers = papers.map(paper => ({
-            ...paper.toJSON(),
-            logo: paper.logo && !paper.logo.startsWith('http') ? `${baseUrl}/${paper.logo}` : (paper.logo || null) // Convert relative path to full URL, keep URLs as-is
-        }));
+        // Format the response to include full image URLs and user data
+        const formattedPapers = papers.map(paper => {
+            const paperData = paper.toJSON();
+            const user = paperData.user;
+            
+            // Get school_name, address, and logo from user if available, otherwise from paper (backward compatibility)
+            const school_name = user?.school_name || paperData.school_name || null;
+            const address = user?.address || paperData.address || null;
+            let logo = user?.logo || user?.logo_url || paperData.logo || null;
+            
+            // Format logo URL
+            if (logo && !logo.startsWith('http')) {
+                logo = `${baseUrl}/${logo}`;
+            }
+            
+            // Remove user object from response
+            const { user: _, ...rest } = paperData;
+            
+            return {
+                ...rest,
+                school_name,
+                address,
+                logo
+            };
+        });
 
         return res.status(200).json({ success: true, data: formattedPapers });
     } catch (error) {
@@ -131,7 +164,13 @@ exports.getPapersByUserId = async (req, res) => {
         const { user_id } = req.params;
         const { type } = req.query; // Get type from query parameters
 
-        let whereClause = { user_id };
+        let whereClause = { 
+            user_id,
+            [Op.or]: [
+                { is_template: false },
+                { is_template: null }
+            ]
+        };
 
         // If type is provided, validate and add it to the filter
         if (type) {
@@ -144,12 +183,20 @@ exports.getPapersByUserId = async (req, res) => {
 
         const papers = await Paper.findAll({ 
             where: whereClause,
-            include: [{
-                model: SubjectTitle,
-                as: 'subjectTitle',
-                attributes: ['subject_title_id', 'title_name'],
-                required: false // LEFT JOIN - include papers even if subject_title_id is null
-            }]
+            include: [
+                {
+                    model: SubjectTitle,
+                    as: 'subjectTitle',
+                    attributes: ['subject_title_id', 'title_name'],
+                    required: false // LEFT JOIN - include papers even if subject_title_id is null
+                },
+                {
+                    model: User,
+                    as: 'user',
+                    attributes: ['id', 'school_name', 'address', 'logo', 'logo_url'],
+                    required: false
+                }
+            ]
         });
 
         if (papers.length === 0) {
@@ -162,10 +209,23 @@ exports.getPapersByUserId = async (req, res) => {
         // Format response to include full image URL and subject title name
         const formattedPapers = papers.map(paper => {
             const paperData = paper.toJSON();
-            const { subjectTitle, ...rest } = paperData; // Extract subjectTitle to get the name, then remove it
+            const { subjectTitle, user, ...rest } = paperData;
+            
+            // Get school_name, address, and logo from user if available, otherwise from paper (backward compatibility)
+            const school_name = user?.school_name || paperData.school_name || null;
+            const address = user?.address || paperData.address || null;
+            let logo = user?.logo || user?.logo_url || paperData.logo || null;
+            
+            // Format logo URL
+            if (logo && !logo.startsWith('http')) {
+                logo = `${baseUrl}/${logo}`;
+            }
+            
             return {
                 ...rest,
-                logo: paperData.logo && !paperData.logo.startsWith('http') ? `${baseUrl}/${paperData.logo}` : (paperData.logo || null), // Convert relative path to full URL, keep URLs as-is
+                school_name,
+                address,
+                logo,
                 subject_title_name: subjectTitle ? subjectTitle.title_name : null // Add subject title name
             };
         });
@@ -184,17 +244,14 @@ exports.updatePaper = async (req, res) => {
         const { 
             user_id, 
             type, 
-            school_name, 
             standard, 
             timing, 
             date, 
             division, 
-            address, 
             subject, 
             subject_title_id,
             board, 
             body,
-            logo_url,
             marks_mcq,
             marks_short,
             marks_long,
@@ -214,29 +271,22 @@ exports.updatePaper = async (req, res) => {
             return res.status(400).json({ success: false, message: "Invalid paper type. Allowed values: 'custom', 'default'." });
         }
 
-        // Handle logo update - prioritize file upload, then URL, then keep existing
-        let logoPath = paper.logo; // Keep existing logo by default
-        
-        if (req.file) {
-            // Delete old logo if it exists and is not default
-            if (paper.logo && paper.logo !== "/uploads/1739360660741.JPG" && !paper.logo.startsWith('http')) {
-                const rootDir = path.resolve(__dirname, '..', '..');
-                const oldLogoPath = path.join(rootDir, paper.logo);
-                
-                if (fs.existsSync(oldLogoPath)) {
-                    fs.unlinkSync(oldLogoPath);
-                    console.log(`✅ Deleted old logo: ${oldLogoPath}`);
-                }
-            }
-            // Set new logo path from file upload
-            logoPath = `uploads/papers/logo/${req.file.filename}`;
-        } else if (logo_url !== undefined) {
-            // If logo_url is provided (even if empty string), use it
-            if (logo_url && logo_url.trim() !== '') {
-                logoPath = logo_url.trim();
-            } else {
-                logoPath = "/uploads/1739360660741.JPG"; // Default if empty
-            }
+        // Fetch user to get school_name, address, and logo (if user_id is provided or use existing)
+        const userId = user_id || paper.user_id;
+        const user = await User.findByPk(userId);
+        if (!user) {
+            return res.status(404).json({ success: false, message: "User not found" });
+        }
+
+        // Get school_name, address, and logo from user
+        const school_name = user.school_name || null;
+        const address = user.address || null;
+        // Get logo from user - prioritize logo, then logo_url, then default
+        let logo = "/uploads/1739360660741.JPG"; // Default logo
+        if (user.logo) {
+            logo = user.logo;
+        } else if (user.logo_url) {
+            logo = user.logo_url;
         }
 
         // Calculate total marks if any marks are provided
@@ -253,20 +303,23 @@ exports.updatePaper = async (req, res) => {
         }
 
         // Prepare update data (only include fields that are provided)
-        const updateData = {};
+        // Note: school_name, address, and logo are always updated from user table
+        const updateData = {
+            school_name, // Always from user table
+            address, // Always from user table
+            logo, // Always from user table
+        };
         if (user_id !== undefined) updateData.user_id = user_id;
         if (type !== undefined) updateData.type = type;
-        if (school_name !== undefined) updateData.school_name = school_name;
         if (standard !== undefined) updateData.standard = standard;
         if (timing !== undefined) updateData.timing = timing;
         if (date !== undefined) updateData.date = date;
         if (division !== undefined) updateData.division = division;
-        if (address !== undefined) updateData.address = address;
         if (subject !== undefined) updateData.subject = subject;
         if (subject_title_id !== undefined) updateData.subject_title_id = subject_title_id ? parseInt(subject_title_id) : null;
         if (board !== undefined) updateData.board = board;
+        if (paper_title !== undefined) updateData.paper_title = paper_title;
         if (body !== undefined) updateData.body = body;
-        if (logo_url !== undefined) updateData.logo_url = logo_url && logo_url.trim() !== '' ? logo_url.trim() : null;
         if (marks_mcq !== undefined) updateData.marks_mcq = parseInt(marks_mcq) || 0;
         if (marks_short !== undefined) updateData.marks_short = parseInt(marks_short) || 0;
         if (marks_long !== undefined) updateData.marks_long = parseInt(marks_long) || 0;
@@ -277,7 +330,6 @@ exports.updatePaper = async (req, res) => {
             marks_blank !== undefined || marks_onetwo !== undefined || marks_truefalse !== undefined) {
             updateData.total_marks = totalMarks;
         }
-        if (req.file || logo_url !== undefined) updateData.logo = logoPath;
 
         // Update the paper
         await paper.update(updateData);
@@ -304,7 +356,22 @@ exports.updatePaper = async (req, res) => {
 exports.getPaperById = async (req, res) => {
     try {
         const { id } = req.params;
-        const paper = await Paper.findByPk(id);
+        const paper = await Paper.findByPk(id, {
+            include: [
+                {
+                    model: SubjectTitle,
+                    as: 'subjectTitle',
+                    attributes: ['subject_title_id', 'title_name'],
+                    required: false
+                },
+                {
+                    model: User,
+                    as: 'user',
+                    attributes: ['id', 'school_name', 'address', 'logo', 'logo_url'],
+                    required: false
+                }
+            ]
+        });
         
         if (!paper) {
             return res.status(404).json({ success: false, message: 'Paper not found' });
@@ -312,9 +379,39 @@ exports.getPaperById = async (req, res) => {
 
         // Generate base URL
         const baseUrl = `${req.protocol}://${req.get('host')}`;
+        const paperData = paper.toJSON();
+        const { subjectTitle, user, ...rest } = paperData;
+
+        // Get school_name, address, and logo from user if available, otherwise from paper (backward compatibility)
+        const school_name = user?.school_name || paperData.school_name || null;
+        const address = user?.address || paperData.address || null;
+        let logo = user?.logo || user?.logo_url || paperData.logo || null;
+        
+        // Format logo URL
+        if (logo && !logo.startsWith('http')) {
+            logo = `${baseUrl}/${logo}`;
+        }
+
+        // Parse template_metadata if it exists
+        let parsedMetadata = null;
+        if (paperData.template_metadata) {
+            try {
+                parsedMetadata = typeof paperData.template_metadata === 'string' 
+                    ? JSON.parse(paperData.template_metadata) 
+                    : paperData.template_metadata;
+            } catch (error) {
+                console.error('Error parsing template_metadata:', error);
+                parsedMetadata = null;
+            }
+        }
+
         const formattedPaper = {
-            ...paper.toJSON(),
-            logo: paper.logo && !paper.logo.startsWith('http') ? `${baseUrl}/${paper.logo}` : (paper.logo || null) // Convert relative path to full URL, keep URLs as-is
+            ...rest,
+            school_name,
+            address,
+            logo,
+            subject_title_name: subjectTitle ? subjectTitle.title_name : null, // Add subject title name
+            template_metadata: parsedMetadata // Add parsed template_metadata
         };
 
         return res.status(200).json({ success: true, data: formattedPaper });
@@ -356,475 +453,108 @@ exports.deletePaper = async (req, res) => {
     }
 };
 
-// ==================== TEMPLATE/Default Paper APIs ====================
-
-// Admin: Get all templates
-exports.getTemplates = async (req, res) => {
+// Create Template (Admin Only)
+exports.createTemplate = async (req, res) => {
     try {
-        const { subject, standard, board } = req.query;
-        
-        const whereClause = { is_template: true };
-        
-        if (subject) whereClause.subject = subject;
-        if (standard) whereClause.standard = parseInt(standard);
-        if (board) whereClause.board = board;
+        const { 
+            user_id, 
+            type, 
+            school_name, 
+            standard, 
+            timing, 
+            date, 
+            division, 
+            address, 
+            subject, 
+            subject_title_id,
+            board, 
+            paper_title,
+            body,
+            logo_url,
+            marks_mcq,
+            marks_short,
+            marks_long,
+            marks_blank,
+            marks_onetwo,
+            marks_truefalse,
+            template_metadata
+        } = req.body;
 
-        const templates = await Paper.findAll({
-            where: whereClause,
-            include: [{
-                model: SubjectTitle,
-                as: 'subjectTitle',
-                attributes: ['subject_title_id', 'title_name'],
-                required: false
-            }],
-            order: [['id', 'DESC']]
-        });
-
-        const baseUrl = `${req.protocol}://${req.get('host')}`;
-        
-        const formattedTemplates = templates.map(template => {
-            const templateData = template.toJSON();
-            const { subjectTitle, ...rest } = templateData;
-            
-            // Parse body to get question count
-            let questionCount = 0;
-            try {
-                const bodyArray = JSON.parse(templateData.body || '[]');
-                questionCount = Array.isArray(bodyArray) ? bodyArray.length : 0;
-            } catch (e) {
-                questionCount = 0;
-            }
-
-            return {
-                ...rest,
-                logo: templateData.logo && !templateData.logo.startsWith('http') 
-                    ? `${baseUrl}/${templateData.logo}` 
-                    : (templateData.logo || null),
-                subject_title_name: subjectTitle ? subjectTitle.title_name : null,
-                question_count: questionCount
-            };
-        });
-
-        return res.status(200).json({ 
-            success: true, 
-            templates: formattedTemplates 
-        });
-    } catch (error) {
-        console.error('Error fetching templates:', error);
-        return res.status(500).json({ 
-            success: false, 
-            message: "Error fetching templates", 
-            error: error.message 
-        });
-    }
-};
-
-// Admin: Get single template with questions
-exports.getTemplateById = async (req, res) => {
-    try {
-        const { id } = req.params;
-        
-        const template = await Paper.findOne({
-            where: { id, is_template: true },
-            include: [{
-                model: SubjectTitle,
-                as: 'subjectTitle',
-                attributes: ['subject_title_id', 'title_name'],
-                required: false
-            }]
-        });
-
-        if (!template) {
-            return res.status(404).json({ 
-                success: false, 
-                message: 'Template not found' 
-            });
+        // Validate required fields
+        if (!user_id || !type || !school_name || !standard || !date || !subject || !board || !body) {
+            return res.status(400).json({ success: false, message: "Missing required fields" });
         }
 
-        // Parse body to get question IDs
-        let questionIds = [];
+        // Validate type
+        if (!allowedTypes.includes(type.toLowerCase())) {
+            return res.status(400).json({ success: false, message: "Invalid paper type. Allowed values: 'custom', 'default'." });
+        }
+
+        // Validate template_metadata
+        if (!template_metadata) {
+            return res.status(400).json({ success: false, message: "template_metadata is required" });
+        }
+
+        let metadata;
         try {
-            questionIds = JSON.parse(template.body || '[]');
-        } catch (e) {
-            questionIds = [];
+            metadata = typeof template_metadata === 'string' ? JSON.parse(template_metadata) : template_metadata;
+        } catch (error) {
+            return res.status(400).json({ success: false, message: "Invalid template_metadata JSON format" });
         }
 
-        // Fetch all questions
-        const questions = await Question.findAll({
-            where: { question_id: { [Op.in]: questionIds } }
-        });
-        
-        // Sort questions by their position in questionIds array
-        const questionMap = new Map(questions.map(q => [q.question_id, q]));
-        const sortedQuestions = questionIds.map(id => questionMap.get(id)).filter(q => q !== undefined);
-
-        const baseUrl = `${req.protocol}://${req.get('host')}`;
-        const templateData = template.toJSON();
-        const { subjectTitle, ...rest } = templateData;
-
-        return res.status(200).json({
-            success: true,
-            template: {
-                ...rest,
-                logo: templateData.logo && !templateData.logo.startsWith('http') 
-                    ? `${baseUrl}/${templateData.logo}` 
-                    : (templateData.logo || null),
-                subject_title_name: subjectTitle ? subjectTitle.title_name : null,
-                questions: sortedQuestions.map(q => {
-                    const qData = q.toJSON();
-                    // Parse options if exists
-                    let parsedOptions = null;
-                    if (qData.options) {
-                        try {
-                            parsedOptions = typeof qData.options === 'string' 
-                                ? JSON.parse(qData.options) 
-                                : qData.options;
-                        } catch (e) {
-                            parsedOptions = qData.options;
-                        }
-                    }
-                    return {
-                        ...qData,
-                        options: parsedOptions,
-                        image_url: qData.image_url ? `${baseUrl}/${qData.image_url}` : null
-                    };
-                })
-            }
-        });
-    } catch (error) {
-        console.error('Error fetching template:', error);
-        return res.status(500).json({ 
-            success: false, 
-            message: "Error fetching template", 
-            error: error.message 
-        });
-    }
-};
-
-// User: Get available templates (filtered by user's approved subjects/standards)
-exports.getAvailableTemplates = async (req, res) => {
-    try {
-        const userId = req.user?.id || req.user?.user_id;
-        if (!userId) {
-            return res.status(401).json({ 
-                success: false, 
-                message: "User authentication required" 
-            });
+        // Validate header_id exists
+        if (!metadata.header_id || typeof metadata.header_id !== 'number') {
+            return res.status(400).json({ success: false, message: "template_metadata.header_id is required and must be a number" });
         }
 
-        const { subject_id, standard, board_id } = req.query;
-
-        // Get user's approved subjects and subject titles
-        const [approvedSubjects, approvedSubjectTitles] = await Promise.all([
-            UserSubject.findAll({
-                where: { user_id: userId, status: 'approved' },
-                attributes: ['subject_id']
-            }),
-            UserSubjectTitle.findAll({
-                where: { user_id: userId, status: 'approved' },
-                attributes: ['subject_id', 'subject_title_id']
-            })
-        ]);
-
-        const userSubjectIds = approvedSubjects.map(s => s.subject_id);
-        const userSubjectTitleIds = approvedSubjectTitles.map(st => st.subject_title_id);
-
-        // Build where clause for templates
-        const whereClause = { is_template: true };
-        
-        if (subject_id) {
-            whereClause.subject_id = subject_id;
-        }
-        if (standard) {
-            whereClause.standard = parseInt(standard);
-        }
-        if (board_id) {
-            whereClause.board_id = parseInt(board_id);
-        }
-
-        // Get templates
-        const templates = await Paper.findAll({
-            where: whereClause,
-            include: [{
-                model: SubjectTitle,
-                as: 'subjectTitle',
-                attributes: ['subject_title_id', 'title_name'],
-                required: false
-            }],
-            order: [['id', 'DESC']]
-        });
-
-        // Filter templates based on user's approved subjects (if not already filtered)
-        const filteredTemplates = templates.filter(template => {
-            // If subject_id filter is provided, it's already filtered
-            if (subject_id) return true;
-            
-            // Otherwise, check if template's subject matches user's approved subjects
-            // This is a simplified check - you may need to match by subject name or ID
-            return true; // For now, return all templates. Adjust based on your subject matching logic
-        });
-
-        const baseUrl = `${req.protocol}://${req.get('host')}`;
-        
-        const formattedTemplates = filteredTemplates.map(template => {
-            const templateData = template.toJSON();
-            const { subjectTitle, ...rest } = templateData;
-            
-            // Parse body to get question count
-            let questionCount = 0;
-            try {
-                const bodyArray = JSON.parse(templateData.body || '[]');
-                questionCount = Array.isArray(bodyArray) ? bodyArray.length : 0;
-            } catch (e) {
-                questionCount = 0;
-            }
-
-            return {
-                ...rest,
-                logo: templateData.logo && !templateData.logo.startsWith('http') 
-                    ? `${baseUrl}/${templateData.logo}` 
-                    : (templateData.logo || null),
-                subject_title_name: subjectTitle ? subjectTitle.title_name : null,
-                question_count: questionCount,
-                marks_breakdown: {
-                    mcq: templateData.marks_mcq || 0,
-                    short: templateData.marks_short || 0,
-                    long: templateData.marks_long || 0,
-                    blank: templateData.marks_blank || 0,
-                    onetwo: templateData.marks_onetwo || 0,
-                    truefalse: templateData.marks_truefalse || 0
+        // Validate question_types if provided
+        if (metadata.question_types) {
+            const validQuestionTypes = ['mcq', 'short', 'long', 'blank', 'onetwo', 'truefalse'];
+            const questionTypeKeys = Object.keys(metadata.question_types);
+            for (const key of questionTypeKeys) {
+                if (!validQuestionTypes.includes(key)) {
+                    return res.status(400).json({ success: false, message: `Invalid question type: ${key}. Allowed values: ${validQuestionTypes.join(', ')}` });
                 }
-            };
-        });
-
-        return res.status(200).json({ 
-            success: true, 
-            templates: formattedTemplates 
-        });
-    } catch (error) {
-        console.error('Error fetching available templates:', error);
-        return res.status(500).json({ 
-            success: false, 
-            message: "Error fetching available templates", 
-            error: error.message 
-        });
-    }
-};
-
-// User: View template details (read-only)
-exports.viewTemplate = async (req, res) => {
-    try {
-        const { id } = req.params;
-        const userId = req.user?.id || req.user?.user_id;
-        
-        if (!userId) {
-            return res.status(401).json({ 
-                success: false, 
-                message: "User authentication required" 
-            });
-        }
-
-        const template = await Paper.findOne({
-            where: { id, is_template: true },
-            include: [{
-                model: SubjectTitle,
-                as: 'subjectTitle',
-                attributes: ['subject_title_id', 'title_name'],
-                required: false
-            }]
-        });
-
-        if (!template) {
-            return res.status(404).json({ 
-                success: false, 
-                message: 'Template not found' 
-            });
-        }
-
-        // Parse body to get question IDs
-        let questionIds = [];
-        try {
-            questionIds = JSON.parse(template.body || '[]');
-        } catch (e) {
-            questionIds = [];
-        }
-
-        // Fetch all questions with position
-        const questions = await Question.findAll({
-            where: { question_id: { [Op.in]: questionIds } }
-        });
-
-        // Sort questions by their position in the body array
-        const sortedQuestions = questionIds.map((qId, index) => {
-            const question = questions.find(q => q.question_id === qId);
-            if (question) {
-                const qData = question.toJSON();
-                let parsedOptions = null;
-                if (qData.options) {
-                    try {
-                        parsedOptions = typeof qData.options === 'string' 
-                            ? JSON.parse(qData.options) 
-                            : qData.options;
-                    } catch (e) {
-                        parsedOptions = qData.options;
-                    }
+                if (metadata.question_types[key].custom_title && typeof metadata.question_types[key].custom_title !== 'string') {
+                    return res.status(400).json({ success: false, message: `custom_title for ${key} must be a string` });
                 }
-                return {
-                    ...qData,
-                    position: index + 1,
-                    options: parsedOptions
-                };
-            }
-            return null;
-        }).filter(q => q !== null);
-
-        const baseUrl = `${req.protocol}://${req.get('host')}`;
-        const templateData = template.toJSON();
-        const { subjectTitle, ...rest } = templateData;
-
-        return res.status(200).json({
-            success: true,
-            template: {
-                ...rest,
-                logo: templateData.logo && !templateData.logo.startsWith('http') 
-                    ? `${baseUrl}/${templateData.logo}` 
-                    : (templateData.logo || null),
-                subject_title_name: subjectTitle ? subjectTitle.title_name : null,
-                questions: sortedQuestions.map(q => ({
-                    ...q,
-                    image_url: q.image_url ? `${baseUrl}/${q.image_url}` : null
-                })),
-                is_template: true,
-                can_customize: true
-            }
-        });
-    } catch (error) {
-        console.error('Error viewing template:', error);
-        return res.status(500).json({ 
-            success: false, 
-            message: "Error viewing template", 
-            error: error.message 
-        });
-    }
-};
-
-// User: Customize template (create copy with question replacements)
-exports.customizeTemplate = async (req, res) => {
-    try {
-        const { id } = req.params; // Template ID
-        const { replacements } = req.body; // Array of {position, question_id}
-        const userId = req.user?.id || req.user?.user_id;
-
-        if (!userId) {
-            return res.status(401).json({ 
-                success: false, 
-                message: "User authentication required" 
-            });
-        }
-
-        // Get template
-        const template = await Paper.findByPk(id);
-        if (!template || !template.is_template) {
-            return res.status(404).json({ 
-                success: false, 
-                message: 'Template not found' 
-            });
-        }
-
-        // Parse template body
-        let bodyArray = [];
-        try {
-            bodyArray = JSON.parse(template.body || '[]');
-        } catch (e) {
-            return res.status(400).json({ 
-                success: false, 
-                message: 'Invalid template body format' 
-            });
-        }
-
-        // Validate and apply replacements
-        if (replacements && Array.isArray(replacements)) {
-            for (const replacement of replacements) {
-                const { position, question_id } = replacement;
-                
-                if (!position || !question_id) {
-                    return res.status(400).json({ 
-                        success: false, 
-                        message: 'Each replacement must have position and question_id' 
-                    });
-                }
-
-                const index = position - 1; // Convert to 0-based index
-                if (index < 0 || index >= bodyArray.length) {
-                    return res.status(400).json({ 
-                        success: false, 
-                        message: `Invalid position: ${position}. Valid range: 1-${bodyArray.length}` 
-                    });
-                }
-
-                // Verify question exists
-                const question = await Question.findByPk(question_id);
-                if (!question) {
-                    return res.status(404).json({ 
-                        success: false, 
-                        message: `Question with ID ${question_id} not found` 
-                    });
-                }
-
-                // Replace question
-                bodyArray[index] = question_id;
             }
         }
 
-        // Recalculate marks based on new questions
-        const questions = await Question.findAll({
-            where: { question_id: { [Op.in]: bodyArray } }
-        });
+        // Handle logo: prioritize file upload, then URL, then default
+        let logo = "/uploads/1739360660741.JPG"; // Default logo
+        if (req.file) {
+            logo = `uploads/papers/logo/${req.file.filename}`;
+        } else if (logo_url && logo_url.trim() !== '') {
+            logo = logo_url.trim();
+        }
 
-        let marksMcq = 0, marksShort = 0, marksLong = 0, marksBlank = 0, marksOnetwo = 0, marksTruefalse = 0;
-
-        questions.forEach(q => {
-            const marks = q.marks || 0;
-            switch (q.type) {
-                case 'mcq':
-                    marksMcq += marks;
-                    break;
-                case 'short':
-                    marksShort += marks;
-                    break;
-                case 'long':
-                    marksLong += marks;
-                    break;
-                case 'blank':
-                    marksBlank += marks;
-                    break;
-                case 'onetwo':
-                    marksOnetwo += marks;
-                    break;
-                case 'truefalse':
-                    marksTruefalse += marks;
-                    break;
-            }
-        });
-
+        // Calculate total marks
+        const marksMcq = parseInt(marks_mcq) || 0;
+        const marksShort = parseInt(marks_short) || 0;
+        const marksLong = parseInt(marks_long) || 0;
+        const marksBlank = parseInt(marks_blank) || 0;
+        const marksOnetwo = parseInt(marks_onetwo) || 0;
+        const marksTruefalse = parseInt(marks_truefalse) || 0;
         const totalMarks = marksMcq + marksShort + marksLong + marksBlank + marksOnetwo + marksTruefalse;
 
-        // Create new custom paper
-        const customPaper = await Paper.create({
-            user_id: userId,
-            type: 'custom',
-            school_name: template.school_name,
-            standard: template.standard,
-            timing: template.timing,
-            date: template.date,
-            division: template.division,
-            address: template.address,
-            subject: template.subject,
-            subject_title_id: template.subject_title_id,
-            logo: template.logo,
-            logo_url: template.logo_url,
-            board: template.board,
-            body: JSON.stringify(bodyArray),
+        // Create template entry
+        const template = await Paper.create({
+            user_id,
+            type,
+            school_name,
+            standard,
+            timing: timing || null,
+            date,
+            division: division || null,
+            address: address || null,
+            subject,
+            subject_title_id: subject_title_id ? parseInt(subject_title_id) : null,
+            logo,
+            logo_url: logo_url && logo_url.trim() !== '' ? logo_url.trim() : null,
+            board,
+            paper_title: paper_title || null, // For templates
+            body,
             marks_mcq: marksMcq,
             marks_short: marksShort,
             marks_long: marksLong,
@@ -832,283 +562,333 @@ exports.customizeTemplate = async (req, res) => {
             marks_onetwo: marksOnetwo,
             marks_truefalse: marksTruefalse,
             total_marks: totalMarks,
-            is_template: false,
-            template_paper_id: id
+            is_template: true,
+            template_metadata: JSON.stringify(metadata)
         });
 
-        const baseUrl = `${req.protocol}://${req.get('host')}`;
-        const paperData = customPaper.toJSON();
-
-        return res.status(201).json({
-            success: true,
-            message: "Paper customized successfully",
-            paper: {
-                ...paperData,
-                logo: paperData.logo && !paperData.logo.startsWith('http') 
-                    ? `${baseUrl}/${paperData.logo}` 
-                    : (paperData.logo || null)
-            }
-        });
+        return res.status(201).json({ success: true, message: "Template created successfully", data: template });
     } catch (error) {
-        console.error('Error customizing template:', error);
-        return res.status(500).json({ 
-            success: false, 
-            message: "Error customizing template", 
-            error: error.message 
-        });
+        return res.status(500).json({ success: false, message: "Error creating template", error: error.message });
     }
 };
 
-// User: Replace single question in customized paper
-exports.replaceQuestion = async (req, res) => {
+// Get Templates (Public)
+exports.getTemplates = async (req, res) => {
     try {
-        const { id } = req.params; // Paper ID
-        const { position, question_id } = req.body;
-        const userId = req.user?.id || req.user?.user_id;
+        const { subject, standard, board } = req.query;
 
-        if (!userId) {
-            return res.status(401).json({ 
-                success: false, 
-                message: "User authentication required" 
-            });
+        // Build where clause
+        const whereClause = { is_template: true };
+
+        if (subject) {
+            whereClause.subject = subject;
+        }
+        if (standard) {
+            whereClause.standard = parseInt(standard);
+        }
+        if (board) {
+            whereClause.board = board;
         }
 
-        if (!position || !question_id) {
-            return res.status(400).json({ 
-                success: false, 
-                message: 'position and question_id are required' 
-            });
-        }
+        // Debug: Log the query
 
-        // Get paper
-        const paper = await Paper.findByPk(id);
-        if (!paper) {
-            return res.status(404).json({ 
-                success: false, 
-                message: 'Paper not found' 
-            });
-        }
-
-        // Verify paper belongs to user
-        if (paper.user_id !== userId) {
-            return res.status(403).json({ 
-                success: false, 
-                message: 'You can only modify your own papers' 
-            });
-        }
-
-        // Verify paper is customized (has template_paper_id)
-        if (!paper.template_paper_id) {
-            return res.status(400).json({ 
-                success: false, 
-                message: 'This paper is not a customized template. Only customized papers can have questions replaced.' 
-            });
-        }
-
-        // Parse body
-        let bodyArray = [];
-        try {
-            bodyArray = JSON.parse(paper.body || '[]');
-        } catch (e) {
-            return res.status(400).json({ 
-                success: false, 
-                message: 'Invalid paper body format' 
-            });
-        }
-
-        // Validate position
-        const index = position - 1;
-        if (index < 0 || index >= bodyArray.length) {
-            return res.status(400).json({ 
-                success: false, 
-                message: `Invalid position: ${position}. Valid range: 1-${bodyArray.length}` 
-            });
-        }
-
-        // Verify question exists
-        const question = await Question.findByPk(question_id);
-        if (!question) {
-            return res.status(404).json({ 
-                success: false, 
-                message: `Question with ID ${question_id} not found` 
-            });
-        }
-
-        // Get old question for marks recalculation
-        const oldQuestionId = bodyArray[index];
-        const oldQuestion = await Question.findByPk(oldQuestionId);
-
-        // Replace question
-        bodyArray[index] = question_id;
-
-        // Recalculate marks
-        const questions = await Question.findAll({
-            where: { question_id: { [Op.in]: bodyArray } }
-        });
-
-        let marksMcq = 0, marksShort = 0, marksLong = 0, marksBlank = 0, marksOnetwo = 0, marksTruefalse = 0;
-
-        questions.forEach(q => {
-            const marks = q.marks || 0;
-            switch (q.type) {
-                case 'mcq':
-                    marksMcq += marks;
-                    break;
-                case 'short':
-                    marksShort += marks;
-                    break;
-                case 'long':
-                    marksLong += marks;
-                    break;
-                case 'blank':
-                    marksBlank += marks;
-                    break;
-                case 'onetwo':
-                    marksOnetwo += marks;
-                    break;
-                case 'truefalse':
-                    marksTruefalse += marks;
-                    break;
-            }
-        });
-
-        const totalMarks = marksMcq + marksShort + marksLong + marksBlank + marksOnetwo + marksTruefalse;
-
-        // Update paper
-        await paper.update({
-            body: JSON.stringify(bodyArray),
-            marks_mcq: marksMcq,
-            marks_short: marksShort,
-            marks_long: marksLong,
-            marks_blank: marksBlank,
-            marks_onetwo: marksOnetwo,
-            marks_truefalse: marksTruefalse,
-            total_marks: totalMarks
-        });
-
-        const baseUrl = `${req.protocol}://${req.get('host')}`;
-        const paperData = paper.toJSON();
-
-        return res.status(200).json({
-            success: true,
-            message: "Question replaced successfully",
-            paper: {
-                ...paperData,
-                logo: paperData.logo && !paperData.logo.startsWith('http') 
-                    ? `${baseUrl}/${paperData.logo}` 
-                    : (paperData.logo || null)
-            }
-        });
-    } catch (error) {
-        console.error('Error replacing question:', error);
-        return res.status(500).json({ 
-            success: false, 
-            message: "Error replacing question", 
-            error: error.message 
-        });
-    }
-};
-
-// User: Get my customized papers
-exports.getMyCustomizedPapers = async (req, res) => {
-    try {
-        const userId = req.user?.id || req.user?.user_id;
-        const { template_id } = req.query;
-
-        if (!userId) {
-            return res.status(401).json({ 
-                success: false, 
-                message: "User authentication required" 
-            });
-        }
-
-        const whereClause = { 
-            user_id: userId,
-            template_paper_id: { [Op.ne]: null } // Only customized papers
-        };
-
-        if (template_id) {
-            whereClause.template_paper_id = parseInt(template_id);
-        }
-
-        const papers = await Paper.findAll({
+        const templates = await Paper.findAll({ 
             where: whereClause,
             include: [{
                 model: SubjectTitle,
                 as: 'subjectTitle',
                 attributes: ['subject_title_id', 'title_name'],
                 required: false
-            }],
-            order: [['id', 'DESC']]
+            }]
         });
 
-        // Get template information for each paper
-        const papersWithTemplateInfo = await Promise.all(
-            papers.map(async (paper) => {
-                const paperData = paper.toJSON();
-                const { subjectTitle, ...rest } = paperData;
+        // Debug: Log results
+        console.log(`Found ${templates.length} templates`);
 
-                // Get template info
-                let templateInfo = null;
-                if (paper.template_paper_id) {
-                    const template = await Paper.findByPk(paper.template_paper_id, {
-                        attributes: ['id', 'subject', 'standard', 'board']
-                    });
-                    if (template) {
-                        templateInfo = {
-                            id: template.id,
-                            name: `${template.subject} Standard ${template.standard}`,
-                            subject: template.subject,
-                            standard: template.standard,
-                            board: template.board
-                        };
-                    }
-                }
-
-                // Count customizations (compare body with template body)
-                let customizationsCount = 0;
-                if (paper.template_paper_id) {
-                    const template = await Paper.findByPk(paper.template_paper_id);
-                    if (template) {
-                        try {
-                            const templateBody = JSON.parse(template.body || '[]');
-                            const paperBody = JSON.parse(paper.body || '[]');
-                            customizationsCount = templateBody.filter((qId, index) => 
-                                paperBody[index] !== qId
-                            ).length;
-                        } catch (e) {
-                            customizationsCount = 0;
-                        }
-                    }
-                }
-
-                return {
-                    ...rest,
-                    subject_title_name: subjectTitle ? subjectTitle.title_name : null,
-                    template_info: templateInfo,
-                    customizations_count: customizationsCount
-                };
-            })
-        );
-
+        // Generate base URL
         const baseUrl = `${req.protocol}://${req.get('host')}`;
-        const formattedPapers = papersWithTemplateInfo.map(paper => ({
-            ...paper,
-            logo: paper.logo && !paper.logo.startsWith('http') 
-                ? `${baseUrl}/${paper.logo}` 
-                : (paper.logo || null)
-        }));
 
-        return res.status(200).json({
-            success: true,
-            papers: formattedPapers
+        // Format response to include full image URL, subject title name, and parsed metadata
+        const formattedTemplates = templates.map(template => {
+            const templateData = template.toJSON();
+            const { subjectTitle, ...rest } = templateData;
+
+            // Parse template_metadata if it exists
+            let parsedMetadata = null;
+            if (templateData.template_metadata) {
+                try {
+                    parsedMetadata = typeof templateData.template_metadata === 'string' 
+                        ? JSON.parse(templateData.template_metadata) 
+                        : templateData.template_metadata;
+                } catch (error) {
+                    console.error('Error parsing template_metadata:', error);
+                    parsedMetadata = null;
+                }
+            }
+
+            return {
+                ...rest,
+                logo: templateData.logo && !templateData.logo.startsWith('http') ? `${baseUrl}/${templateData.logo}` : (templateData.logo || null),
+                subject_title_name: subjectTitle ? subjectTitle.title_name : null,
+                template_metadata: parsedMetadata
+            };
         });
+
+        return res.status(200).json({ success: true, data: formattedTemplates });
     } catch (error) {
-        console.error('Error fetching customized papers:', error);
-        return res.status(500).json({ 
-            success: false, 
-            message: "Error fetching customized papers", 
-            error: error.message 
-        });
+        return res.status(500).json({ success: false, message: "Error fetching templates", error: error.message });
     }
 };
+
+// Update Template (Admin Only)
+exports.updateTemplate = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { 
+            user_id, 
+            type, 
+            school_name, 
+            standard, 
+            timing, 
+            date, 
+            division, 
+            address, 
+            subject, 
+            subject_title_id,
+            board, 
+            body,
+            logo_url,
+            marks_mcq,
+            marks_short,
+            marks_long,
+            marks_blank,
+            marks_onetwo,
+            marks_truefalse,
+            template_metadata
+        } = req.body;
+
+        // Find the template by ID
+        const template = await Paper.findByPk(id);
+        if (!template) {
+            return res.status(404).json({ success: false, message: 'Template not found' });
+        }
+
+        if (!template.is_template) {
+            return res.status(400).json({ success: false, message: 'Paper is not a template' });
+        }
+
+        // Validate type if provided
+        if (type && !allowedTypes.includes(type.toLowerCase())) {
+            return res.status(400).json({ success: false, message: "Invalid paper type. Allowed values: 'custom', 'default'." });
+        }
+
+        // Validate template_metadata if provided
+        let metadata = null;
+        if (template_metadata !== undefined) {
+            try {
+                metadata = typeof template_metadata === 'string' ? JSON.parse(template_metadata) : template_metadata;
+            } catch (error) {
+                return res.status(400).json({ success: false, message: "Invalid template_metadata JSON format" });
+            }
+
+            // Validate header_id if provided
+            if (metadata.header_id !== undefined) {
+                if (typeof metadata.header_id !== 'number') {
+                    return res.status(400).json({ success: false, message: "template_metadata.header_id must be a number" });
+                }
+            }
+
+            // Validate question_types if provided
+            if (metadata.question_types) {
+                const validQuestionTypes = ['mcq', 'short', 'long', 'blank', 'onetwo', 'truefalse'];
+                const questionTypeKeys = Object.keys(metadata.question_types);
+                for (const key of questionTypeKeys) {
+                    if (!validQuestionTypes.includes(key)) {
+                        return res.status(400).json({ success: false, message: `Invalid question type: ${key}. Allowed values: ${validQuestionTypes.join(', ')}` });
+                    }
+                    if (metadata.question_types[key].custom_title && typeof metadata.question_types[key].custom_title !== 'string') {
+                        return res.status(400).json({ success: false, message: `custom_title for ${key} must be a string` });
+                    }
+                }
+            }
+        }
+
+        // Handle logo update - prioritize file upload, then URL, then keep existing
+        let logoPath = template.logo; // Keep existing logo by default
+        
+        if (req.file) {
+            // Delete old logo if it exists and is not default
+            if (template.logo && template.logo !== "/uploads/1739360660741.JPG" && !template.logo.startsWith('http')) {
+                const rootDir = path.resolve(__dirname, '..', '..');
+                const oldLogoPath = path.join(rootDir, template.logo);
+                
+                if (fs.existsSync(oldLogoPath)) {
+                    fs.unlinkSync(oldLogoPath);
+                    console.log(`✅ Deleted old logo: ${oldLogoPath}`);
+                }
+            }
+            // Set new logo path from file upload
+            logoPath = `uploads/papers/logo/${req.file.filename}`;
+        } else if (logo_url !== undefined) {
+            // If logo_url is provided (even if empty string), use it
+            if (logo_url && logo_url.trim() !== '') {
+                logoPath = logo_url.trim();
+            } else {
+                logoPath = "/uploads/1739360660741.JPG"; // Default if empty
+            }
+        }
+
+        // Calculate total marks if any marks are provided
+        let totalMarks = template.total_marks || 0;
+        if (marks_mcq !== undefined || marks_short !== undefined || marks_long !== undefined || 
+            marks_blank !== undefined || marks_onetwo !== undefined || marks_truefalse !== undefined) {
+            const marksMcq = marks_mcq !== undefined ? (parseInt(marks_mcq) || 0) : (template.marks_mcq || 0);
+            const marksShort = marks_short !== undefined ? (parseInt(marks_short) || 0) : (template.marks_short || 0);
+            const marksLong = marks_long !== undefined ? (parseInt(marks_long) || 0) : (template.marks_long || 0);
+            const marksBlank = marks_blank !== undefined ? (parseInt(marks_blank) || 0) : (template.marks_blank || 0);
+            const marksOnetwo = marks_onetwo !== undefined ? (parseInt(marks_onetwo) || 0) : (template.marks_onetwo || 0);
+            const marksTruefalse = marks_truefalse !== undefined ? (parseInt(marks_truefalse) || 0) : (template.marks_truefalse || 0);
+            totalMarks = marksMcq + marksShort + marksLong + marksBlank + marksOnetwo + marksTruefalse;
+        }
+
+        // Prepare update data (only include fields that are provided)
+        const updateData = {};
+        if (user_id !== undefined) updateData.user_id = user_id;
+        if (type !== undefined) updateData.type = type;
+        if (school_name !== undefined) updateData.school_name = school_name;
+        if (standard !== undefined) updateData.standard = standard;
+        if (timing !== undefined) updateData.timing = timing;
+        if (date !== undefined) updateData.date = date;
+        if (division !== undefined) updateData.division = division;
+        if (address !== undefined) updateData.address = address;
+        if (subject !== undefined) updateData.subject = subject;
+        if (subject_title_id !== undefined) updateData.subject_title_id = subject_title_id ? parseInt(subject_title_id) : null;
+        if (board !== undefined) updateData.board = board;
+        if (paper_title !== undefined) updateData.paper_title = paper_title;
+        if (body !== undefined) updateData.body = body;
+        if (logo_url !== undefined) updateData.logo_url = logo_url && logo_url.trim() !== '' ? logo_url.trim() : null;
+        if (marks_mcq !== undefined) updateData.marks_mcq = parseInt(marks_mcq) || 0;
+        if (marks_short !== undefined) updateData.marks_short = parseInt(marks_short) || 0;
+        if (marks_long !== undefined) updateData.marks_long = parseInt(marks_long) || 0;
+        if (marks_blank !== undefined) updateData.marks_blank = parseInt(marks_blank) || 0;
+        if (marks_onetwo !== undefined) updateData.marks_onetwo = parseInt(marks_onetwo) || 0;
+        if (marks_truefalse !== undefined) updateData.marks_truefalse = parseInt(marks_truefalse) || 0;
+        if (marks_mcq !== undefined || marks_short !== undefined || marks_long !== undefined || 
+            marks_blank !== undefined || marks_onetwo !== undefined || marks_truefalse !== undefined) {
+            updateData.total_marks = totalMarks;
+        }
+        if (req.file || logo_url !== undefined) updateData.logo = logoPath;
+        if (metadata !== null) updateData.template_metadata = JSON.stringify(metadata);
+
+        // Update the template
+        await template.update(updateData);
+
+        // Generate base URL for logo
+        const baseUrl = `${req.protocol}://${req.get('host')}`;
+        const updatedTemplate = {
+            ...template.toJSON(),
+            logo: template.logo && !template.logo.startsWith('http') ? `${baseUrl}/${template.logo}` : template.logo
+        };
+
+        // Parse template_metadata if it exists
+        if (updatedTemplate.template_metadata) {
+            try {
+                updatedTemplate.template_metadata = typeof updatedTemplate.template_metadata === 'string' 
+                    ? JSON.parse(updatedTemplate.template_metadata) 
+                    : updatedTemplate.template_metadata;
+            } catch (error) {
+                console.error('Error parsing template_metadata:', error);
+            }
+        }
+
+        return res.status(200).json({ 
+            success: true, 
+            message: "Template updated successfully", 
+            data: updatedTemplate 
+        });
+    } catch (error) {
+        console.error('Error updating template:', error);
+        return res.status(500).json({ success: false, message: "Error updating template", error: error.message });
+    }
+};
+
+// Clone Template
+exports.cloneTemplate = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { user_id } = req.body;
+
+        if (!user_id) {
+            return res.status(400).json({ success: false, message: "user_id is required" });
+        }
+
+        // Fetch template
+        const template = await Paper.findByPk(id);
+        if (!template) {
+            return res.status(404).json({ success: false, message: "Template not found" });
+        }
+
+        if (!template.is_template) {
+            return res.status(400).json({ success: false, message: "Paper is not a template" });
+        }
+
+        // Parse template_metadata
+        let metadata;
+        try {
+            metadata = template.template_metadata 
+                ? (typeof template.template_metadata === 'string' ? JSON.parse(template.template_metadata) : template.template_metadata)
+                : null;
+        } catch (error) {
+            return res.status(400).json({ success: false, message: "Invalid template_metadata format" });
+        }
+
+        if (!metadata || !metadata.header_id) {
+            return res.status(400).json({ success: false, message: "Template metadata or header_id is missing" });
+        }
+
+        // Fetch header from headers table (if exists)
+        const header = await Header.findByPk(metadata.header_id);
+
+        // Create new paper with template data and header data
+        const newPaper = await Paper.create({
+            user_id: parseInt(user_id),
+            type: template.type,
+            school_name: header?.school_name || template.school_name,
+            standard: template.standard,
+            timing: template.timing,
+            date: template.date,
+            division: template.division,
+            address: template.address,
+            subject: template.subject,
+            subject_title_id: header?.subject_title_id || template.subject_title_id,
+            logo: header?.logo_url || template.logo,
+            logo_url: header?.logo_url || template.logo_url,
+            board: template.board,
+            paper_title: template.paper_title, // Include paper_title when cloning
+            body: template.body,
+            marks_mcq: template.marks_mcq,
+            marks_short: template.marks_short,
+            marks_long: template.marks_long,
+            marks_blank: template.marks_blank,
+            marks_onetwo: template.marks_onetwo,
+            marks_truefalse: template.marks_truefalse,
+            total_marks: template.total_marks,
+            is_template: false,
+            template_metadata: JSON.stringify({ question_types: metadata.question_types || {} })
+        });
+
+        // Generate base URL
+        const baseUrl = `${req.protocol}://${req.get('host')}`;
+        const paperData = newPaper.toJSON();
+
+        const formattedPaper = {
+            ...paperData,
+            logo: paperData.logo && !paperData.logo.startsWith('http') ? `${baseUrl}/${paperData.logo}` : (paperData.logo || null)
+        };
+
+        return res.status(201).json({ success: true, message: "Template cloned successfully", data: formattedPaper });
+    } catch (error) {
+        return res.status(500).json({ success: false, message: "Error cloning template", error: error.message });
+    }
+};
+
