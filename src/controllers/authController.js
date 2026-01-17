@@ -562,8 +562,24 @@ exports.forgotPassword = async (req, res) => {
   try {
     const { email, phone_number } = req.body;
 
+    // Validate that at least one identifier is provided
+    if (!email && !phone_number) {
+      return res.status(400).json({ 
+        error: "Email or phone number is required." 
+      });
+    }
+
+    // Build WHERE clause conditionally - only include fields that are provided
+    const whereConditions = [];
+    if (email) {
+      whereConditions.push({ email });
+    }
+    if (phone_number) {
+      whereConditions.push({ phone_number });
+    }
+
     const user = await User.findOne({
-      where: { [Op.or]: [{ email }, { phone_number }] },
+      where: { [Op.or]: whereConditions },
     });
 
     if (!user) {
