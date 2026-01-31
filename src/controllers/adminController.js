@@ -274,16 +274,21 @@ exports.getUserSelections = async (req, res) => {
 };
 
 // Approve user selections and activate user
+// Supports two formats:
+// 1) subject_ids / subject_title_ids = row IDs (user_subjects.id, user_subject_titles.id)
+// 2) approve_by_subject_ids / approve_by_subject_title_ids = master IDs (subject_id, subject_title_id)
 exports.approveUserSelections = async (req, res) => {
   try {
     const { id } = req.params; // user_id
-    const { 
-      subject_ids = [],      // Array of user_subjects.id to approve
-      subject_title_ids = [], // Array of user_subject_titles.id to approve
-      reject_others = false  // If true, reject all non-approved items
+    const {
+      subject_ids = [],             // Array of user_subjects.id to approve
+      subject_title_ids = [],       // Array of user_subject_titles.id to approve
+      approve_by_subject_ids = [],  // Array of subject_id (master) to approve for this user
+      approve_by_subject_title_ids = [], // Array of subject_title_id (master) to approve for this user
+      reject_others = false,
     } = req.body;
 
-    const adminId = req.user?.id || req.user?.user_id; // Admin ID from middleware
+    const adminId = req.user?.id || req.user?.user_id;
 
     const user = await User.findByPk(id);
     if (!user) {
@@ -292,8 +297,30 @@ exports.approveUserSelections = async (req, res) => {
 
     const now = new Date();
 
-    // Approve selected subjects
+    // Resolve which user_subjects rows to approve: by row id and/or by subject_id (master)
+    let subjectRowIdsToApprove = [];
     if (subject_ids.length > 0) {
+      const byRowId = await UserSubject.findAll({
+        where: { user_id: id, id: { [Op.in]: subject_ids } },
+        attributes: ["id"],
+      });
+      subjectRowIdsToApprove = byRowId.length > 0
+        ? byRowId.map((r) => r.id)
+        : (await UserSubject.findAll({
+            where: { user_id: id, subject_id: { [Op.in]: subject_ids } },
+            attributes: ["id"],
+          })).map((r) => r.id);
+    }
+    if (approve_by_subject_ids.length > 0) {
+      const bySubjectId = await UserSubject.findAll({
+        where: { user_id: id, subject_id: { [Op.in]: approve_by_subject_ids } },
+        attributes: ["id"],
+      });
+      subjectRowIdsToApprove = [...new Set([...subjectRowIdsToApprove, ...bySubjectId.map((r) => r.id)])];
+    }
+
+    // Approve selected subjects (by user_subjects.id)
+    if (subjectRowIdsToApprove.length > 0) {
       await UserSubject.update(
         {
           status: "approved",
@@ -302,13 +329,12 @@ exports.approveUserSelections = async (req, res) => {
         },
         {
           where: {
-            id: { [Op.in]: subject_ids },
+            id: { [Op.in]: subjectRowIdsToApprove },
             user_id: id,
           },
         }
       );
 
-      // Reject others if requested
       if (reject_others) {
         await UserSubject.update(
           {
@@ -319,7 +345,7 @@ exports.approveUserSelections = async (req, res) => {
           {
             where: {
               user_id: id,
-              id: { [Op.notIn]: subject_ids },
+              id: { [Op.notIn]: subjectRowIdsToApprove },
               status: "pending",
             },
           }
@@ -327,8 +353,30 @@ exports.approveUserSelections = async (req, res) => {
       }
     }
 
-    // Approve selected subject titles
+    // Resolve which user_subject_titles rows to approve: by row id and/or by subject_title_id (master)
+    let subjectTitleRowIdsToApprove = [];
     if (subject_title_ids.length > 0) {
+      const byRowId = await UserSubjectTitle.findAll({
+        where: { user_id: id, id: { [Op.in]: subject_title_ids } },
+        attributes: ["id"],
+      });
+      subjectTitleRowIdsToApprove = byRowId.length > 0
+        ? byRowId.map((r) => r.id)
+        : (await UserSubjectTitle.findAll({
+            where: { user_id: id, subject_title_id: { [Op.in]: subject_title_ids } },
+            attributes: ["id"],
+          })).map((r) => r.id);
+    }
+    if (approve_by_subject_title_ids.length > 0) {
+      const byTitleId = await UserSubjectTitle.findAll({
+        where: { user_id: id, subject_title_id: { [Op.in]: approve_by_subject_title_ids } },
+        attributes: ["id"],
+      });
+      subjectTitleRowIdsToApprove = [...new Set([...subjectTitleRowIdsToApprove, ...byTitleId.map((r) => r.id)])];
+    }
+
+    // Approve selected subject titles (by user_subject_titles.id)
+    if (subjectTitleRowIdsToApprove.length > 0) {
       await UserSubjectTitle.update(
         {
           status: "approved",
@@ -337,7 +385,7 @@ exports.approveUserSelections = async (req, res) => {
         },
         {
           where: {
-            id: { [Op.in]: subject_title_ids },
+            id: { [Op.in]: subjectTitleRowIdsToApprove },
             user_id: id,
           },
         }
@@ -353,7 +401,7 @@ exports.approveUserSelections = async (req, res) => {
           {
             where: {
               user_id: id,
-              id: { [Op.notIn]: subject_title_ids },
+              id: { [Op.notIn]: subjectTitleRowIdsToApprove },
               status: "pending",
             },
           }
@@ -402,7 +450,7 @@ exports.approveUserSelections = async (req, res) => {
   }
 };
 
-// Old activateUser - kept for backward compatibility but now just shows pending selections
+// Activate user: always set is_verified = 1 (with or without pending selections).
 exports.activateUser = async (req, res) => {
   try {
     const { id } = req.params;
@@ -412,7 +460,6 @@ exports.activateUser = async (req, res) => {
       return res.status(404).json({ error: "User not found" });
     }
 
-    // Get pending selections
     const pendingSubjects = await UserSubject.count({
       where: { user_id: id, status: "pending" },
     });
@@ -421,18 +468,25 @@ exports.activateUser = async (req, res) => {
       where: { user_id: id, status: "pending" },
     });
 
+    // Always activate: set is_verified = 1
+    user.is_verified = 1;
+    await user.save();
+    await sendActivationStatusEmail(user.email, user.name, true);
+
     res.status(200).json({
-      message: "User details with pending selections",
+      message: "User activated successfully",
       user: {
-        ...user.toJSON(),
-        password: undefined,
-        otp: undefined,
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        subject: user.subject,
+        subject_title: user.subject_title,
+        is_verified: user.is_verified,
       },
       pending_selections_count: {
         subjects: pendingSubjects,
         subject_titles: pendingSubjectTitles,
       },
-      note: "Use /admin/approve-selections/:id to approve and activate user",
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
