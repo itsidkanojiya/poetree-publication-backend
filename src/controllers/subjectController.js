@@ -1,4 +1,6 @@
-const { Subject, SubjectTitle ,Boards} = require('../models/Subjects');
+const { Subject, SubjectTitle, Boards } = require('../models/Subjects');
+const UserSubjectTitle = require('../models/UserSubjectTitle');
+const User = require('../models/User');
 
 // Add Subject
 exports.addSubject = async (req, res) => {
@@ -155,7 +157,41 @@ exports.deleteSubjectTitle = async (req, res) => {
             return res.status(404).json({ message: 'Subject title not found' });
         }
 
-        // Delete the subject title
+        const titleId = parseInt(id, 10);
+
+        // 1. Delete all user_subject_titles that reference this subject_title_id
+        await UserSubjectTitle.destroy({
+            where: { subject_title_id: titleId },
+        });
+
+        // 2. Remove this subject_title_id from every user's subject_title (JSON array or single value)
+        const users = await User.findAll({
+            where: { user_type: 'user' },
+            attributes: ['id', 'subject_title'],
+        });
+        for (const user of users) {
+            let titles = user.subject_title;
+            if (titles == null) continue;
+            if (typeof titles === 'string') {
+                try {
+                    titles = JSON.parse(titles);
+                } catch {
+                    continue;
+                }
+            }
+            if (!Array.isArray(titles)) {
+                titles = titles === titleId ? [] : [titles];
+            } else {
+                titles = titles.filter((t) => t !== titleId);
+            }
+            const newValue = titles.length === 0 ? null : JSON.stringify(titles);
+            await User.update(
+                { subject_title: newValue },
+                { where: { id: user.id } }
+            );
+        }
+
+        // 3. Delete the subject title
         await subjectTitle.destroy();
         res.status(200).json({ message: 'Subject title deleted successfully' });
     } catch (err) {
