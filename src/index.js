@@ -17,7 +17,9 @@ dotenv.config();
     
 
 const app = express();
-app.use(express.json());
+// Allow larger request bodies for file uploads (proxy may also need client_max_body_size)
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(cors());
 app.use(express.static(path.join(__dirname, '../client')));
 
@@ -70,9 +72,11 @@ if (process.env.NETLIFY !== 'true' && process.env.NODE_ENV !== 'build') {
     }
 
     const PORT = process.env.PORT || 4000;
-    app.listen(PORT, () => {
+    const server = app.listen(PORT, () => {
         console.log(`Server is running on http://localhost:${PORT}`);
     });
+    // Allow more time for file uploads (default is 2 min)
+    server.setTimeout(300000); // 5 minutes
 }
 
 module.exports = app;

@@ -25,7 +25,7 @@ const Worksheet = sequelize.define('worksheet', {
     },
     worksheet_coverlink: {
         type: DataTypes.STRING,
-        allowNull: false,
+        allowNull: true,
     },
 }, {
     tableName: 'worksheets',
