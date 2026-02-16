@@ -30,7 +30,7 @@ const Question = sequelize.define('questions', {
   },
   answer: {
     type: DataTypes.TEXT,
-    allowNull: false,
+    allowNull: true, // Optional: matches DB (answer TEXT NULL)
   },
   solution: {
     type: DataTypes.TEXT,

@@ -27,10 +27,14 @@ exports.addQuestion = async (req, res) => {
       options,marks
     } = req.body;
 
-        // Validate required fields
-        if (!subject_title_id || !subject_id || !standardLevel || !board_id || !question || !answer || !type || !marks) {
-            return res.status(400).json({ error: "Missing required fields" });
+        // Validate required fields (answer is optional)
+        if (!subject_title_id || !subject_id || !standardLevel || !board_id || !question || !type || !marks) {
+            return res.status(400).json({
+              error: "Missing required fields",
+              required: ["subject_title_id", "subject_id", "standard", "board_id", "question", "type", "marks"]
+            });
         }
+        const answerTrimmed = answer != null ? String(answer).trim() : null;
 
         // Validate question type
         if (!['mcq', 'short', 'long', 'blank', 'onetwo', 'truefalse', 'passage', 'match'].includes(type)) {
@@ -50,7 +54,7 @@ exports.addQuestion = async (req, res) => {
             standard: standardLevel,
             board_id,
             question,
-            answer,
+            answer: answerTrimmed || null,
             solution,
             type,marks,
             options: formattedOptions, 
@@ -61,54 +65,7 @@ exports.addQuestion = async (req, res) => {
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: err.message });
-    // Validate required fields
-    if (
-      !subject_title_id ||
-      !subject_id ||
-      !standardLevel ||
-      !board_id ||
-      !question || !marks ||
-      !answer ||
-      !type
-    ) {
-      return res.status(400).json({ error: "Missing required fields" });
     }
-
-    // Validate question type
-    if (!["mcq", "short", "long", "blank", "onetwo", "truefalse", "passage", "match"].includes(type)) {
-      return res.status(400).json({ error: "Invalid question type" });
-    }
-
-    // Handle options properly
-    const formattedOptions = options
-      ? Array.isArray(options)
-        ? JSON.stringify(options)
-        : options
-      : null;
-
-    // Get the uploaded image path safely
-    const image_url = req.file?.filename
-      ? `uploads/question/${type}/${req.file.filename}`
-      : null;
-
-    // Create the question
-    const newQuestion = await Question.create({
-      subject_title_id,
-      subject_id,
-      standard: standardLevel,
-      board_id,
-      question,
-      answer,marks,
-      solution,
-      type,
-      options: formattedOptions,
-      image_url, // Save full image path
-    });
-
-    res
-      .status(201)
-      .json({ message: "Question added successfully", question: newQuestion });
-  }
 };
 
 exports.editQuestion = async (req, res) => {
@@ -131,6 +88,11 @@ exports.editQuestion = async (req, res) => {
     if (!existingQuestion)
       return res.status(404).json({ message: "Question not found" });
 
+    // Answer is optional (matches DB: answer TEXT NULL). If provided, use trimmed value; if omitted, keep existing.
+    const answerValue = answer !== undefined
+      ? (answer != null ? String(answer).trim() : null) || null
+      : existingQuestion.answer;
+
     let image_url = existingQuestion.image_url; // Keep old image if new not provided
 
     // If a new image is uploaded, delete the old one and update the path
@@ -149,14 +111,14 @@ exports.editQuestion = async (req, res) => {
       image_url = `/uploads/question/${type}/${req.file.filename}`;
     }
 
-    // Update the question
+    // Update the question (answer is optional)
     await existingQuestion.update({
       subject_title_id, marks,
       subject_id,
       standard: standardLevel,
       board_id,
       question,
-      answer,
+      answer: answerValue,
       solution,
       type,
       options: JSON.stringify(options), // Store options as a string
