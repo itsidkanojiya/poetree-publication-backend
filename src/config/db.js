@@ -28,6 +28,7 @@ const getSequelize = () => {
             process.env.DB_PASS,
             {
                 host: process.env.DB_HOST,
+                port: parseInt(process.env.DB_PORT, 10) || 3306,
                 dialect: 'mysql',
                 logging: console.log, // Log queries for debugging
                 dialectOptions: {
