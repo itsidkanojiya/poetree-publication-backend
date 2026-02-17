@@ -1,6 +1,8 @@
 const { Subject, SubjectTitle, Boards } = require('../models/Subjects');
 const UserSubjectTitle = require('../models/UserSubjectTitle');
 const User = require('../models/User');
+const { Op } = require('sequelize');
+const sequelize = require('../config/db');
 
 // Add Subject
 exports.addSubject = async (req, res) => {
@@ -65,7 +67,21 @@ exports.getAllSubjects = async (req, res) => {
 };
 exports.getAllSubjectTitle = async (req, res) => {
     try {
+        const { subject_id, standard } = req.query;
+        const where = {};
+        if (subject_id) {
+            const sid = parseInt(subject_id, 10);
+            if (!isNaN(sid)) where.subject_id = sid;
+        }
+        if (standard !== undefined && standard !== '') {
+            const stdId = parseInt(standard, 10);
+            if (!isNaN(stdId)) {
+                where[Op.and] = where[Op.and] || [];
+                where[Op.and].push(sequelize.literal(`JSON_CONTAINS(\`SubjectTitle\`.\`standard\`, CAST(${stdId} AS JSON), '$')`));
+            }
+        }
         const subjectTitles = await SubjectTitle.findAll({
+            where,
             include: [
                 {
                     model: Subject,
@@ -80,7 +96,7 @@ exports.getAllSubjectTitle = async (req, res) => {
             subject_title_id: item.subject_title_id,
             title_name: item.title_name,
             subject_id: item.subject_id,
-            subject: item.Subject.subject_name,
+            subject: item.Subject?.subject_name,
             standard: item.standard
         }));
 
@@ -93,15 +109,26 @@ exports.getAllSubjectTitle = async (req, res) => {
 exports.getSubjectTitlesBySubjectId = async (req, res) => {
     try {
         const { subject_id } = req.params;
-
-        // Find subject and associated titles
+        const { standard } = req.query;
+        let where = { subject_id };
+        if (standard !== undefined && standard !== '') {
+            const stdId = parseInt(standard, 10);
+            if (!isNaN(stdId)) {
+                where = {
+                    [Op.and]: [
+                        { subject_id },
+                        sequelize.literal(`JSON_CONTAINS(standard, CAST(${stdId} AS JSON), '$')`)
+                    ]
+                };
+            }
+        }
         const subjectTitles = await SubjectTitle.findAll({
-            where: { subject_id },
-            attributes: ['subject_title_id', 'title_name', 'standard'], // Include standard (JSON array)
+            where,
+            attributes: ['subject_title_id', 'title_name', 'standard'],
         });
 
         if (!subjectTitles.length) {
-            return res.status(404).json({ message: 'No subject titles found for the given subject' });
+            return res.status(404).json({ message: 'No subject titles found for the given subject and standard' });
         }
 
         res.status(200).json(subjectTitles);
@@ -164,31 +191,33 @@ exports.deleteSubjectTitle = async (req, res) => {
             where: { subject_title_id: titleId },
         });
 
-        // 2. Remove this subject_title_id from every user's subject_title (JSON array or single value)
+        // 2. Clear subject_title for users who had this subject_title_id (column is INTEGER: single id or null)
         const users = await User.findAll({
             where: { user_type: 'user' },
             attributes: ['id', 'subject_title'],
         });
         for (const user of users) {
-            let titles = user.subject_title;
-            if (titles == null) continue;
-            if (typeof titles === 'string') {
+            const current = user.subject_title;
+            if (current == null) continue;
+            let shouldClear = false;
+            if (Array.isArray(current)) {
+                shouldClear = current.includes(titleId);
+            } else if (typeof current === 'string') {
                 try {
-                    titles = JSON.parse(titles);
+                    const parsed = JSON.parse(current);
+                    shouldClear = Array.isArray(parsed) ? parsed.includes(titleId) : parseInt(current, 10) === titleId;
                 } catch {
-                    continue;
+                    shouldClear = parseInt(current, 10) === titleId;
                 }
-            }
-            if (!Array.isArray(titles)) {
-                titles = titles === titleId ? [] : [titles];
             } else {
-                titles = titles.filter((t) => t !== titleId);
+                shouldClear = parseInt(current, 10) === titleId;
             }
-            const newValue = titles.length === 0 ? null : JSON.stringify(titles);
-            await User.update(
-                { subject_title: newValue },
-                { where: { id: user.id } }
-            );
+            if (shouldClear) {
+                await User.update(
+                    { subject_title: null },
+                    { where: { id: user.id } }
+                );
+            }
         }
 
         // 3. Delete the subject title
