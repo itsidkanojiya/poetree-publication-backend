@@ -2,7 +2,7 @@
 
 Base URL: **http://localhost:4000**. Replace `YOUR_ADMIN_TOKEN` with admin JWT. Subject routes are under `/api`.
 
-**Get subject titles filter:** By **subject** = yes. By **standard** = yes. You can use both together.
+**Get subject titles filter:** By **subject_id**, **standard**, and **board_id**. Use any combination.
 
 ---
 
@@ -13,14 +13,24 @@ Base URL: **http://localhost:4000**. Replace `YOUR_ADMIN_TOKEN` with admin JWT. 
 curl -X GET "http://localhost:4000/api/subjectTitle"
 ```
 
-**Filter by subject only** (query param `subject_id`):
+**Filter by subject only** (`subject_id`):
 ```bash
 curl -X GET "http://localhost:4000/api/subjectTitle?subject_id=1"
 ```
 
-**Filter by standard only** (query param `standard` = standard_id):
+**Filter by board only** (`board_id`):
+```bash
+curl -X GET "http://localhost:4000/api/subjectTitle?board_id=1"
+```
+
+**Filter by standard only** (`standard` = standard_id):
 ```bash
 curl -X GET "http://localhost:4000/api/subjectTitle?standard=5"
+```
+
+**Filter by subject and board:**
+```bash
+curl -X GET "http://localhost:4000/api/subjectTitle?subject_id=1&board_id=1"
 ```
 
 **Filter by subject and standard:**
@@ -28,20 +38,35 @@ curl -X GET "http://localhost:4000/api/subjectTitle?standard=5"
 curl -X GET "http://localhost:4000/api/subjectTitle?subject_id=1&standard=5"
 ```
 
+**Filter by subject, board, and standard:**
+```bash
+curl -X GET "http://localhost:4000/api/subjectTitle?subject_id=1&board_id=1&standard=5"
+```
+
 ---
 
-## Get subject titles by subject (path + optional standard)
+## Get subject titles by subject (path + optional board & standard)
 
-Replace `1` with the subject id. Optionally add `?standard=5` to also filter by standard.
+Replace `1` with the subject id. Add `board_id` and/or `standard` in query to filter.
 
 **Subject only:**
 ```bash
 curl -X GET "http://localhost:4000/api/subject/1/titles"
 ```
 
-**Subject and standard:**
+**Subject + board:**
+```bash
+curl -X GET "http://localhost:4000/api/subject/1/titles?board_id=1"
+```
+
+**Subject + standard:**
 ```bash
 curl -X GET "http://localhost:4000/api/subject/1/titles?standard=5"
+```
+
+**Subject + board + standard:**
+```bash
+curl -X GET "http://localhost:4000/api/subject/1/titles?board_id=1&standard=5"
 ```
 
 ---
@@ -50,13 +75,13 @@ curl -X GET "http://localhost:4000/api/subject/1/titles?standard=5"
 
 **POST** `/api/subjectTitle` (admin)
 
-Body: `title_name` (string), `subject_id` (number), `standard` (array of standard_ids, e.g. `[1, 2, 3]`).
+Body: `title_name` (string), `subject_id` (number), `standard` (array of standard_ids), `board_id` (number, required).
 
 ```bash
 curl -X POST "http://localhost:4000/api/subjectTitle" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer YOUR_ADMIN_TOKEN" \
-  -d "{\"title_name\": \"Algebra\", \"subject_id\": 1, \"standard\": [1, 2, 3, 4, 5]}"
+  -d "{\"title_name\": \"Algebra\", \"subject_id\": 1, \"standard\": [1, 2, 3, 4, 5], \"board_id\": 1}"
 ```
 
 ---

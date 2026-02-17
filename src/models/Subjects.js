@@ -45,6 +45,14 @@ const SubjectTitle = sequelize.define('SubjectTitle', {
         type: DataTypes.JSON, // Store array of standard
         allowNull: false,
     },
+    board_id: {
+        type: DataTypes.INTEGER,
+        allowNull: false,
+        references: {
+            model: 'boards',
+            key: 'board_id',
+        },
+    },
 }, {
     tableName: 'subject_titles',
     timestamps: false,
@@ -73,6 +81,7 @@ const Boards = sequelize.define('boards', {
 // Associations
 Subject.hasMany(SubjectTitle, { foreignKey: 'subject_id', onDelete: 'CASCADE' });
 SubjectTitle.belongsTo(Subject, { foreignKey: 'subject_id' });
+SubjectTitle.belongsTo(Boards, { foreignKey: 'board_id', as: 'board' });
 
 // Subject.hasMany(User, {
 //   foreignKey: 'subject_titles',
