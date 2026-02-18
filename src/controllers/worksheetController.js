@@ -1,9 +1,23 @@
-const  WorkSheet  = require("../models/Worksheet");
+const WorkSheet = require("../models/Worksheet");
 const UserSubjectTitle = require("../models/UserSubjectTitle");
 const path = require("path");
 const fs = require("fs");
-
+const { Op } = require("sequelize");
 const { Subject, SubjectTitle, Boards } = require("../models/Subjects");
+const Standard = require("../models/Standard");
+
+async function getStandardNamesMap(standardIds) {
+  if (!standardIds || standardIds.length === 0) return new Map();
+  const ids = [...new Set(standardIds.map(id => parseInt(id, 10)).filter(id => !isNaN(id)))];
+  if (ids.length === 0) return new Map();
+  const rows = await Standard.findAll({
+    where: { standard_id: { [Op.in]: ids } },
+    attributes: ['standard_id', 'name'],
+  });
+  const map = new Map();
+  rows.forEach(r => map.set(r.standard_id, r.name));
+  return map;
+}
 // Define Associations
 WorkSheet.belongsTo(Subject, { foreignKey: "subject_id", as: "subject" });
 WorkSheet.belongsTo(SubjectTitle, {
@@ -86,12 +100,13 @@ console.log(worksheetCoverLink);
       }
     }
 
-    // Generate base URL for the file
     const baseUrl = `${req.protocol}://${req.get('host')}`;
+    const stdName = worksheet.standard != null ? (await getStandardNamesMap([worksheet.standard])).get(parseInt(worksheet.standard, 10)) : null;
     const formattedWorksheet = {
       ...worksheet.toJSON(),
       worksheet_url: worksheet.worksheet_url ? `${baseUrl}/${worksheet.worksheet_url}` : null,
       worksheet_coverlink: worksheet.worksheet_coverlink ? `${baseUrl}/${worksheet.worksheet_coverlink}` : null,
+      standard_name: stdName ?? null,
     };
 
     return res.status(200).json({ success: true, worksheet: formattedWorksheet });
@@ -133,16 +148,16 @@ exports.getAllWorkSheets = async (req, res) => {
       ],
     });
     const baseUrl = `${req.protocol}://${req.get('host')}`;
-    // Transform the response to flatten the subject field
+    const allStdIds = workSheets.map(s => s.standard).filter(Boolean);
+    const stdMap = await getStandardNamesMap(allStdIds);
     const formattedWorkSheets = workSheets.map((sheet) => ({
       ...sheet.toJSON(),
       subject: sheet.subject ? sheet.subject.subject_name : null,
-      subject_title: sheet.subject_title
-        ? sheet.subject_title.title_name
-        : null,
+      subject_title: sheet.subject_title ? sheet.subject_title.title_name : null,
       board: sheet.board ? sheet.board.board_name : null,
-      worksheet_url:  `${baseUrl}/${sheet.worksheet_url}` ,
-      worksheet_coverlink: `${baseUrl}/${sheet.worksheet_coverlink}` ,
+      standard_name: sheet.standard != null ? stdMap.get(parseInt(sheet.standard, 10)) ?? null : null,
+      worksheet_url: `${baseUrl}/${sheet.worksheet_url}`,
+      worksheet_coverlink: `${baseUrl}/${sheet.worksheet_coverlink}`,
     }));
 
     res.status(200).json(formattedWorkSheets);

@@ -2,7 +2,22 @@ const AnswerSheet = require("../models/AnswerSheet");
 const UserSubjectTitle = require("../models/UserSubjectTitle");
 const path = require("path");
 const fs = require("fs");
+const { Op } = require("sequelize");
 const { Subject, SubjectTitle, Boards } = require("../models/Subjects");
+const Standard = require("../models/Standard");
+
+async function getStandardNamesMap(standardIds) {
+  if (!standardIds || standardIds.length === 0) return new Map();
+  const ids = [...new Set(standardIds.map(id => parseInt(id, 10)).filter(id => !isNaN(id)))];
+  if (ids.length === 0) return new Map();
+  const rows = await Standard.findAll({
+    where: { standard_id: { [Op.in]: ids } },
+    attributes: ['standard_id', 'name'],
+  });
+  const map = new Map();
+  rows.forEach(r => map.set(r.standard_id, r.name));
+  return map;
+}
 // Define Associations
 AnswerSheet.belongsTo(Subject, { foreignKey: "subject_id", as: "subject" });
 AnswerSheet.belongsTo(SubjectTitle, {
@@ -92,8 +107,8 @@ console.log(answersheetCoverLink);
       }
     }
 
-    // Generate base URL for the file
     const baseUrl = `${req.protocol}://${req.get("host")}`;
+    const stdName = answersheet.standard != null ? (await getStandardNamesMap([answersheet.standard])).get(parseInt(answersheet.standard, 10)) : null;
     const formattedAnswersheet = {
       ...answersheet.toJSON(),
       answersheet_url: answersheet.answersheet_url
@@ -102,6 +117,7 @@ console.log(answersheetCoverLink);
       answersheet_coverlink: answersheet.answersheet_coverlink
         ? `${baseUrl}/${answersheet.answersheet_coverlink}`
         : null,
+      standard_name: stdName ?? null,
     };
 
     return res
@@ -144,14 +160,14 @@ exports.getAllAnswerSheets = async (req, res) => {
       ],
     });
     const baseUrl = `${req.protocol}://${req.get("host")}`;
-    // Transform the response to flatten the subject field
+    const allStdIds = answerSheets.map(s => s.standard).filter(Boolean);
+    const stdMap = await getStandardNamesMap(allStdIds);
     const formattedAnswerSheets = answerSheets.map((sheet) => ({
       ...sheet.toJSON(),
       subject: sheet.subject ? sheet.subject.subject_name : null,
-      subject_title: sheet.subject_title
-        ? sheet.subject_title.title_name
-        : null,
+      subject_title: sheet.subject_title ? sheet.subject_title.title_name : null,
       board: sheet.board ? sheet.board.board_name : null,
+      standard_name: sheet.standard != null ? stdMap.get(parseInt(sheet.standard, 10)) ?? null : null,
       answersheet_url: `${baseUrl}/${sheet.answersheet_url}`,
       answersheet_coverlink: `${baseUrl}/${sheet.answersheet_coverlink}`,
     }));
