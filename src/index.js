@@ -15,6 +15,7 @@ const paperRoutes = require('./routes/paperRoutes');
 const questionRoutes = require('./routes/questionRoutes');
 const standardsRoutes = require('./routes/standardsRoutes');
 const animationRoutes = require('./routes/animationRoutes');
+const dashboardRoutes = require('./routes/dashboardRoutes');
 dotenv.config();
     
 
@@ -43,6 +44,7 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/question', questionRoutes);
 app.use('/api/standards', standardsRoutes);
 app.use('/api/animations', animationRoutes);
+app.use('/api/dashboard', dashboardRoutes);
 
 // Test endpoint to verify backend is working
 app.get('/test', (req, res) => {

@@ -71,63 +71,52 @@ exports.addQuestion = async (req, res) => {
 exports.editQuestion = async (req, res) => {
   try {
     const { id } = req.params;
-    const {
-      subject_title_id,
-      subject_id,
-      standard: standardLevel,
-      board_id, marks,
-      question,
-      answer,
-      solution,
-      type,
-      options,
-    } = req.body;
+    const body = req.body || {};
 
-    // Find the existing question
     const existingQuestion = await Question.findByPk(id);
     if (!existingQuestion)
       return res.status(404).json({ message: "Question not found" });
 
-    // Answer is optional (matches DB: answer TEXT NULL). If provided, use trimmed value; if omitted, keep existing.
-    const answerValue = answer !== undefined
-      ? (answer != null ? String(answer).trim() : null) || null
-      : existingQuestion.answer;
+    const updates = {};
 
-    let image_url = existingQuestion.image_url; // Keep old image if new not provided
+    if (body.subject_id !== undefined && body.subject_id !== '') updates.subject_id = parseInt(body.subject_id, 10);
+    if (body.subject_title_id !== undefined && body.subject_title_id !== '') updates.subject_title_id = parseInt(body.subject_title_id, 10);
+    if (body.standard !== undefined && body.standard !== '') updates.standard = parseInt(body.standard, 10);
+    if (body.board_id !== undefined && body.board_id !== '') updates.board_id = parseInt(body.board_id, 10);
+    if (body.marks !== undefined && body.marks !== '') updates.marks = parseInt(body.marks, 10);
+    if (body.question !== undefined) updates.question = String(body.question).trim();
+    if (body.type !== undefined && body.type !== '') updates.type = body.type;
 
-    // If a new image is uploaded, delete the old one and update the path
-    if (req.file) {
-      // Get the absolute path of the 'uploads' folder
-      const rootDir = path.resolve(__dirname, "..", "..");
-      const oldImagePath = path.join(rootDir, existingQuestion.image_url);
-
-      // Delete the old image if it exists
-      if (fs.existsSync(oldImagePath)) {
-        fs.unlinkSync(oldImagePath);
-        console.log(`✅ Deleted old image: ${oldImagePath}`);
-      }
-
-      // Set new image URL
-      image_url = `/uploads/question/${type}/${req.file.filename}`;
+    if (body.answer !== undefined) {
+      updates.answer = body.answer != null && String(body.answer).trim() !== '' ? String(body.answer).trim() : null;
+    }
+    if (body.solution !== undefined) {
+      updates.solution = body.solution != null && String(body.solution).trim() !== '' ? String(body.solution).trim() : null;
+    }
+    if (body.options !== undefined) {
+      updates.options = body.options != null
+        ? (Array.isArray(body.options) ? JSON.stringify(body.options) : body.options)
+        : null;
     }
 
-    // Update the question (answer is optional)
-    await existingQuestion.update({
-      subject_title_id, marks,
-      subject_id,
-      standard: standardLevel,
-      board_id,
-      question,
-      answer: answerValue,
-      solution,
-      type,
-      options: JSON.stringify(options), // Store options as a string
-      image_url,
-    });
+    if (req.file) {
+      const rootDir = path.resolve(__dirname, "..", "..");
+      const oldImagePath = existingQuestion.image_url ? path.join(rootDir, existingQuestion.image_url) : null;
+      if (oldImagePath && fs.existsSync(oldImagePath)) {
+        fs.unlinkSync(oldImagePath);
+      }
+      const type = body.type || existingQuestion.type;
+      updates.image_url = `uploads/question/${type}/${req.file.filename}`;
+    }
 
+    if (Object.keys(updates).length > 0) {
+      await existingQuestion.update(updates);
+    }
+
+    const updated = await Question.findByPk(id);
     res.status(200).json({
       message: "Question updated successfully",
-      question: existingQuestion,
+      question: updated,
     });
   } catch (err) {
     console.error(err);
