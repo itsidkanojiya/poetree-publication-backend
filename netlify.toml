@@ -1,0 +1,26 @@
+[build]
+  # Build command that exits quickly - no server should start during build
+  # Ensure mysql2 is installed and compiled for Lambda runtime
+  command = "npm install && npm run build"
+  # Publish directory for frontend static files
+  publish = "client"
+  # Functions directory (if using serverless functions)
+  functions = "netlify/functions"
+
+[build.environment]
+  NODE_VERSION = "18"
+  # Set NETLIFY=true to prevent database connection during build
+  NETLIFY = "true"
+  NODE_ENV = "build"
+
+# Redirect all API routes to serverless function (Express app wrapper)
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/serverless"
+  status = 200
+
+# Redirect /test to serverless function
+[[redirects]]
+  from = "/test"
+  to = "/.netlify/functions/serverless"
+  status = 200
