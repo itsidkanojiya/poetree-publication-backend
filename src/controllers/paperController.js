@@ -244,7 +244,10 @@ exports.updatePaper = async (req, res) => {
         const { 
             user_id, 
             type, 
+<<<<<<< HEAD
             paper_title,
+=======
+>>>>>>> 43dd618ae96165cc7f854a7cd70df5a4ae611103
             standard, 
             timing, 
             date, 
@@ -649,7 +652,10 @@ exports.updateTemplate = async (req, res) => {
             user_id, 
             type, 
             school_name, 
+<<<<<<< HEAD
             paper_title,
+=======
+>>>>>>> 43dd618ae96165cc7f854a7cd70df5a4ae611103
             standard, 
             timing, 
             date, 
