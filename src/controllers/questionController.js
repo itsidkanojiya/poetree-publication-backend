@@ -12,6 +12,58 @@ Question.belongsTo(Boards, { foreignKey: "board_id", as: "board" });
 Subject.hasMany(Question, { foreignKey: "subject_id" });
 SubjectTitle.hasMany(Question, { foreignKey: "subject_title_id" });
 SubjectTitle.hasMany(Question, { foreignKey: "board_id" });
+
+/**
+ * Validate and normalize passage options. Each item can be:
+ * - Short-answer: { "question": "...", "answer": "..." } or { "type": "short", "question": "...", "answer": "..." }
+ * - MCQ: { "type": "mcq", "question": "...", "options": ["A", "B", ...], "answer": "1" } (1-based index)
+ * Missing "type" is treated as "short" (backward compatible).
+ * @returns {{ valid: boolean, error?: string, normalized?: array }}
+ */
+function validatePassageOptions(options) {
+  if (!Array.isArray(options)) return { valid: false, error: "Passage options must be an array" };
+  const normalized = [];
+  for (let i = 0; i < options.length; i++) {
+    const item = options[i];
+    if (!item || typeof item !== "object") return { valid: false, error: `Passage option ${i + 1} must be an object` };
+    const type = item.type === "mcq" ? "mcq" : "short"; // no type or "short" -> short
+    if (type === "mcq") {
+      if (typeof item.question !== "string" || !Array.isArray(item.options))
+        return { valid: false, error: `Passage MCQ item ${i + 1} must have "question" (string) and "options" (array)` };
+      if (item.answer === undefined || item.answer === null)
+        return { valid: false, error: `Passage MCQ item ${i + 1} must have "answer" (1-based index string)` };
+      normalized.push({
+        type: "mcq",
+        question: String(item.question).trim(),
+        options: item.options.map((o) => String(o)),
+        answer: item.answer != null ? String(item.answer) : "",
+      });
+    } else {
+      if (typeof item.question !== "string")
+        return { valid: false, error: `Passage short-answer item ${i + 1} must have "question" (string)` };
+      normalized.push({
+        type: "short",
+        question: String(item.question).trim(),
+        answer: item.answer != null ? String(item.answer).trim() : "",
+      });
+    }
+  }
+  return { valid: true, normalized };
+}
+
+/**
+ * Validate passage answer object: { q1: "...", q2: "1", ... }. Values are text (short) or option index string (MCQ).
+ */
+function validatePassageAnswer(answer) {
+  if (answer == null) return { valid: true };
+  if (typeof answer !== "object" || Array.isArray(answer)) return { valid: false, error: "Passage answer must be an object" };
+  for (const key of Object.keys(answer)) {
+    if (typeof answer[key] !== "string" && typeof answer[key] !== "number")
+      return { valid: false, error: `Passage answer value for "${key}" must be string or number` };
+  }
+  return { valid: true };
+}
+
 // Add a new question
 exports.addQuestion = async (req, res) => {
   try {
@@ -34,15 +86,42 @@ exports.addQuestion = async (req, res) => {
               required: ["subject_title_id", "subject_id", "standard", "board_id", "question", "type", "marks"]
             });
         }
-        const answerTrimmed = answer != null ? String(answer).trim() : null;
-
         // Validate question type
         if (!['mcq', 'short', 'long', 'blank', 'onetwo', 'truefalse', 'passage', 'match'].includes(type)) {
             return res.status(400).json({ error: "Invalid question type" });
         }
 
-        // Handle options properly
-        const formattedOptions = options ? (Array.isArray(options) ? JSON.stringify(options) : options) : null;
+        // Passage: validate and normalize options (short + MCQ sub-questions)
+        let formattedOptions = null;
+        if (type === "passage" && options != null) {
+            const opts = Array.isArray(options) ? options : (typeof options === "string" ? (() => { try { return JSON.parse(options); } catch { return null; } })() : null);
+            if (!Array.isArray(opts)) {
+                return res.status(400).json({ error: "Passage questions require options to be an array" });
+            }
+            const result = validatePassageOptions(opts);
+            if (!result.valid) return res.status(400).json({ error: result.error });
+            formattedOptions = JSON.stringify(result.normalized);
+        } else {
+            formattedOptions = options ? (Array.isArray(options) ? JSON.stringify(options) : options) : null;
+        }
+
+        // Passage: answer can be object { q1: "...", q2: "1", ... }; store as JSON string
+        let answerToStore = null;
+        if (type === "passage" && answer != null) {
+            let answerObj = answer;
+            if (typeof answer === "string") {
+                try { answerObj = JSON.parse(answer); } catch { answerObj = null; }
+            }
+            if (answerObj && typeof answerObj === "object" && !Array.isArray(answerObj)) {
+                const pa = validatePassageAnswer(answerObj);
+                if (!pa.valid) return res.status(400).json({ error: pa.error });
+                answerToStore = JSON.stringify(answerObj);
+            } else {
+                answerToStore = String(answer).trim() || null;
+            }
+        } else {
+            answerToStore = answer != null ? String(answer).trim() : null;
+        }
 
         // Get the uploaded image path safely
         const image_url = req.file?.filename ? `uploads/question/${type}/${req.file.filename}` : null;
@@ -54,7 +133,7 @@ exports.addQuestion = async (req, res) => {
             standard: standardLevel,
             board_id,
             question,
-            answer: answerTrimmed || null,
+            answer: answerToStore,
             solution,
             type,marks,
             options: formattedOptions, 
@@ -87,16 +166,41 @@ exports.editQuestion = async (req, res) => {
     if (body.question !== undefined) updates.question = String(body.question).trim();
     if (body.type !== undefined && body.type !== '') updates.type = body.type;
 
+    const effectiveType = body.type !== undefined ? body.type : existingQuestion.type;
     if (body.answer !== undefined) {
-      updates.answer = body.answer != null && String(body.answer).trim() !== '' ? String(body.answer).trim() : null;
+      if (effectiveType === "passage" && body.answer != null) {
+        let answerObj = body.answer;
+        if (typeof body.answer === "string") {
+          try { answerObj = JSON.parse(body.answer); } catch { answerObj = null; }
+        }
+        if (answerObj && typeof answerObj === "object" && !Array.isArray(answerObj)) {
+          const pa = validatePassageAnswer(answerObj);
+          if (!pa.valid) return res.status(400).json({ error: pa.error });
+          updates.answer = JSON.stringify(answerObj);
+        } else {
+          updates.answer = String(body.answer).trim() || null;
+        }
+      } else {
+        updates.answer = body.answer != null && String(body.answer).trim() !== '' ? String(body.answer).trim() : null;
+      }
     }
     if (body.solution !== undefined) {
       updates.solution = body.solution != null && String(body.solution).trim() !== '' ? String(body.solution).trim() : null;
     }
     if (body.options !== undefined) {
-      updates.options = body.options != null
-        ? (Array.isArray(body.options) ? JSON.stringify(body.options) : body.options)
-        : null;
+      if (effectiveType === "passage" && body.options != null) {
+        const opts = Array.isArray(body.options) ? body.options : (typeof body.options === "string" ? (() => { try { return JSON.parse(body.options); } catch { return null; } })() : null);
+        if (!Array.isArray(opts)) {
+          return res.status(400).json({ error: "Passage options must be an array" });
+        }
+        const result = validatePassageOptions(opts);
+        if (!result.valid) return res.status(400).json({ error: result.error });
+        updates.options = JSON.stringify(result.normalized);
+      } else {
+        updates.options = body.options != null
+          ? (Array.isArray(body.options) ? JSON.stringify(body.options) : body.options)
+          : null;
+      }
     }
 
     if (req.file) {
@@ -301,13 +405,23 @@ exports.getAllQuestions = async (req, res) => {
         }
       }
 
+      // Passage: answer is stored as JSON object string; return parsed object so frontend can render
+      let answerOut = questionData.answer;
+      if (questionData.type === 'passage' && typeof questionData.answer === 'string' && questionData.answer.trim().startsWith('{')) {
+        try {
+          answerOut = JSON.parse(questionData.answer);
+        } catch (e) {
+          answerOut = questionData.answer;
+        }
+      }
+
       return {
         question_id: questionData.question_id,
         subject_id: questionData.subject_id,
         subject_title_id: questionData.subject_title_id,
         standard: questionData.standard,
         question: questionData.question,
-        answer: questionData.answer,
+        answer: answerOut,
         solution: questionData.solution,
         type: questionData.type,
         options: parsedOptions,
