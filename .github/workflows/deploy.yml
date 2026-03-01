@@ -25,7 +25,8 @@ jobs:
 
             # ===== BACKEND =====
             cd /var/www/poetreebackend/poetree-publication-backend
-            git pull origin main
+            git fetch origin main
+            git reset --hard origin/main
             npm install
             pm2 restart poetree-backend
 
