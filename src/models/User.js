@@ -73,6 +73,11 @@ const User = sequelize.define('users', {
         type: DataTypes.STRING,
         allowNull: true,
     },
+    worksheet_watermark_opacity: {
+        type: DataTypes.FLOAT,
+        allowNull: true,
+        defaultValue: 0.3,
+    },
     subject: {
         type: DataTypes.INTEGER,
         allowNull: true,

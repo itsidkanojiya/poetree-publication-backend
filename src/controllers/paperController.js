@@ -20,7 +20,7 @@ const allowedTypes = ["custom", "default"];
 
 exports.addPaper = async (req, res) => {
     try {
-        const { 
+        let { 
             user_id, 
             type, 
             standard, 
@@ -41,6 +41,22 @@ exports.addPaper = async (req, res) => {
             marks_onetwo,
             marks_truefalse
         } = req.body;
+
+        // Normalize paper_title: ensure it's a string (multipart/form-data or passage flows may send array/object)
+        if (Array.isArray(paper_title)) {
+            paper_title = paper_title.length > 0 ? String(paper_title[0]) : null;
+        } else if (paper_title !== undefined && paper_title !== null && typeof paper_title === 'object') {
+            paper_title = typeof paper_title.title === 'string' ? paper_title.title : JSON.stringify(paper_title);
+        } else if (paper_title !== undefined && paper_title !== null) {
+            paper_title = String(paper_title);
+        } else {
+            paper_title = null;
+        }
+
+        // Normalize body: ensure it's a string (passage/JSON may send array or object)
+        if (body !== undefined && body !== null) {
+            body = typeof body === 'string' ? body : JSON.stringify(body);
+        }
 
         // Validate required fields
         if (!user_id || !type || !standard || !date || !subject || !board || !body) {

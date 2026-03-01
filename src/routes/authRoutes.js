@@ -9,6 +9,7 @@ const {
   verifyToken,
   getProfile,
   updateProfile,
+  getWorksheetPreview,
   resendOTP,
   getMySelections,
   getMyPendingSelections,
@@ -30,6 +31,7 @@ router.get('/verify-token', verifyToken);
 
 // Protected routes (require authentication)
 router.post('/change-password', verifyTokenMiddleware, changePassword);
+router.get('/profile/worksheet-preview', verifyTokenMiddleware, getWorksheetPreview);
 router.get('/profile', verifyTokenMiddleware, getProfile);
 router.put('/profile', verifyTokenMiddleware, upload.single('logo'), updateProfile);
 router.get('/my-selections', verifyTokenMiddleware, getMySelections);

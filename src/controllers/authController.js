@@ -5,7 +5,8 @@ const { Op } = require("sequelize");
 const { Subject, SubjectTitle } = require("../models/Subjects");
 const UserSubject = require("../models/UserSubject");
 const UserSubjectTitle = require("../models/UserSubjectTitle");
-const {sendOTPEmail,sendNewPasswordEmail,sendAccountActivationPendingEmail } = require("../utils/sendOTPEmail");
+const { sendOTPEmail, sendNewPasswordEmail, sendAccountActivationPendingEmail } = require("../utils/sendOTPEmail");
+const personalizedPdfCache = require("../services/personalizedPdfCache");
 
 const generateOTP = () => Math.floor(100000 + Math.random() * 900000).toString(); // e.g. 6-digit
 
@@ -871,6 +872,11 @@ exports.getProfile = async (req, res) => {
       ? `${baseUrl}/${user.logo}` 
       : (user.logo || user.logo_url || null);
 
+    const watermarkOpacity = typeof user.worksheet_watermark_opacity === 'number' &&
+      user.worksheet_watermark_opacity >= 0 && user.worksheet_watermark_opacity <= 1
+      ? user.worksheet_watermark_opacity
+      : 0.3;
+
     const userResponse = {
       id: user.id,
       name: user.name,
@@ -887,6 +893,12 @@ exports.getProfile = async (req, res) => {
       school_principal_name: user.school_principal_name,
       is_verified: user.is_verified,
       is_number_verified: user.is_number_verified,
+      worksheet_watermark_opacity: watermarkOpacity,
+      worksheet_preview: {
+        school_name: user.school_name || 'Your School',
+        logo_url: logoUrl,
+        watermark_opacity: watermarkOpacity,
+      },
     };
 
     res.status(200).json({ success: true, user: userResponse });
@@ -918,6 +930,7 @@ exports.updateProfile = async (req, res) => {
       address,
       school_principal_name,
       logo_url,
+      worksheet_watermark_opacity,
     } = req.body;
 
     // Handle logo: prioritize file upload, then URL, then keep existing
@@ -941,6 +954,13 @@ exports.updateProfile = async (req, res) => {
       updateData.logo = logoPath;
       if (logo_url !== undefined) updateData.logo_url = logo_url && logo_url.trim() !== '' ? logo_url.trim() : null;
     }
+    if (worksheet_watermark_opacity !== undefined) {
+      const opacity = Number(worksheet_watermark_opacity);
+      if (!Number.isNaN(opacity) && opacity >= 0 && opacity <= 1) {
+        updateData.worksheet_watermark_opacity = opacity;
+        personalizedPdfCache.invalidateByUser(userId);
+      }
+    }
 
     await user.update(updateData);
 
@@ -949,6 +969,11 @@ exports.updateProfile = async (req, res) => {
     const logoUrl = user.logo && !user.logo.startsWith('http') 
       ? `${baseUrl}/${user.logo}` 
       : (user.logo || user.logo_url || null);
+
+    const watermarkOpacity = typeof user.worksheet_watermark_opacity === 'number' &&
+      user.worksheet_watermark_opacity >= 0 && user.worksheet_watermark_opacity <= 1
+      ? user.worksheet_watermark_opacity
+      : 0.3;
 
     const userResponse = {
       id: user.id,
@@ -966,6 +991,12 @@ exports.updateProfile = async (req, res) => {
       school_principal_name: user.school_principal_name,
       is_verified: user.is_verified,
       is_number_verified: user.is_number_verified,
+      worksheet_watermark_opacity: watermarkOpacity,
+      worksheet_preview: {
+        school_name: user.school_name || 'Your School',
+        logo_url: logoUrl,
+        watermark_opacity: watermarkOpacity,
+      },
     };
 
     res.status(200).json({ 
@@ -975,6 +1006,45 @@ exports.updateProfile = async (req, res) => {
     });
   } catch (err) {
     console.error("Error updating profile:", err);
+    res.status(500).json({ error: "Internal server error", details: err.message });
+  }
+};
+
+/**
+ * Get worksheet branding preview data (header + watermark opacity) for the current user.
+ * Frontend can use this to show a preview of how the worksheet header and watermark will look.
+ */
+exports.getWorksheetPreview = async (req, res) => {
+  try {
+    const userId = req.user?.id || req.user?.user_id;
+    if (!userId) {
+      return res.status(401).json({ error: "Unauthorized. Please login." });
+    }
+
+    const user = await User.findByPk(userId, {
+      attributes: ['id', 'school_name', 'logo', 'logo_url', 'worksheet_watermark_opacity'],
+    });
+    if (!user) {
+      return res.status(404).json({ error: "User not found." });
+    }
+
+    const baseUrl = `${req.protocol}://${req.get('host')}`;
+    const logoUrl = user.logo && !user.logo.startsWith('http')
+      ? `${baseUrl}/${user.logo}`
+      : (user.logo || user.logo_url || null);
+    const opacity = user.worksheet_watermark_opacity;
+    const watermarkOpacity = typeof opacity === 'number' && opacity >= 0 && opacity <= 1 ? opacity : 0.3;
+
+    res.status(200).json({
+      success: true,
+      preview: {
+        school_name: user.school_name || 'Your School',
+        logo_url: logoUrl,
+        watermark_opacity: watermarkOpacity,
+      },
+    });
+  } catch (err) {
+    console.error("Error getting worksheet preview:", err);
     res.status(500).json({ error: "Internal server error", details: err.message });
   }
 };
