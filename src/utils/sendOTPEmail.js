@@ -1,20 +1,21 @@
 const nodemailer = require("nodemailer");
 
-// Gmail SMTP Configuration
+// Brevo SMTP Configuration
+// Uses .env:
+// BREVO_HOST, BREVO_PORT, BREVO_USER, BREVO_PASS, BREVO_FROM
 const transporter = nodemailer.createTransport({
-  service: "gmail",
-  host: "smtp.gmail.com",
-  port: 587,
-  secure: false, // true for 465, false for other ports
+  host: process.env.BREVO_HOST || "smtp-relay.brevo.com",
+  port: Number(process.env.BREVO_PORT) || 587,
+  secure: false, // Brevo recommends TLS on 587
   auth: {
-    user: process.env.GMAIL_USER, // Your Gmail address
-    pass: process.env.GMAIL_APP_PASSWORD, // Gmail App Password (not regular password)
+    user: process.env.BREVO_USER,
+    pass: process.env.BREVO_PASS,
   },
 });
 
 const sendOTPEmail = async (to, otp) => {
   const mailOptions = {
-    from: `"Poetree Publications" <${process.env.GMAIL_USER}>`,
+    from: `"Poetree Publications" <${process.env.BREVO_FROM || process.env.BREVO_EMAIL}>`,
     to,
     subject: "Your OTP for Poetree Signup",
     html: `
@@ -37,7 +38,7 @@ const sendOTPEmail = async (to, otp) => {
 
 const sendNewPasswordEmail = async (to, newPassword) => {
   const mailOptions = {
-    from: `"Poetree Publications" <${process.env.GMAIL_USER}>`,
+    from: `"Poetree Publications" <${process.env.BREVO_FROM || process.env.BREVO_EMAIL}>`,
     to,
     subject: "Your New Password for Poetree Account",
     html: `
@@ -60,7 +61,7 @@ const sendNewPasswordEmail = async (to, newPassword) => {
 
 const sendAccountActivationPendingEmail = async (to, name) => {
   const mailOptions = {
-    from: `"Poetree Publications" <${process.env.GMAIL_USER}>`,
+    from: `"Poetree Publications" <${process.env.BREVO_FROM || process.env.BREVO_EMAIL}>`,
     to,
     subject: "Account Activation in Process",
     html: `
@@ -91,7 +92,7 @@ const sendActivationStatusEmail = async (to, name, isActivated) => {
     : `<p style="font-size: 16px; color: #e74c3c;">Your account has been <strong>deactivated</strong>. If you believe this is a mistake, please contact support.</p>`;
 
   const mailOptions = {
-    from: `"Poetree Publications" <${process.env.GMAIL_USER}>`,
+    from: `"Poetree Publications" <${process.env.BREVO_FROM || process.env.BREVO_EMAIL}>`,
     to,
     subject,
     html: `

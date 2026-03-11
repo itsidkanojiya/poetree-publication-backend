@@ -790,10 +790,72 @@ exports.getMyApprovedSelections = async (req, res) => {
       }),
     ]);
 
+    // Build grouped view: subject + its titles (similar to admin subject-requests)
+    const buildGrouped = () => {
+      const groups = [];
+      const bySubjectId = new Map();
+
+      subjectTitles.forEach(st => {
+        const sid = st.subject_id;
+        if (!bySubjectId.has(sid)) {
+          bySubjectId.set(sid, {
+            subject: {
+              subject_id: sid,
+              subject_name: st.subject?.subject_name || null,
+            },
+            subject_titles: [],
+          });
+          groups.push(bySubjectId.get(sid));
+        }
+        bySubjectId.get(sid).subject_titles.push({
+          id: st.id,
+          subject_title_id: st.subject_title_id,
+          title_name: st.subjectTitle?.title_name || null,
+          approved_by: st.approved_by,
+          approved_at: st.approved_at,
+          created_at: st.createdAt,
+          updated_at: st.updatedAt,
+        });
+      });
+
+      subjects.forEach(s => {
+        const sid = s.subject_id;
+        if (!bySubjectId.has(sid)) {
+          bySubjectId.set(sid, {
+            subject: {
+              id: s.id,
+              subject_id: sid,
+              subject_name: s.subject?.subject_name || null,
+              approved_by: s.approved_by,
+              approved_at: s.approved_at,
+              created_at: s.createdAt,
+              updated_at: s.updatedAt,
+            },
+            subject_titles: [],
+          });
+          groups.push(bySubjectId.get(sid));
+        } else {
+          const g = bySubjectId.get(sid);
+          g.subject = {
+            id: s.id,
+            subject_id: sid,
+            subject_name: s.subject?.subject_name || null,
+            approved_by: s.approved_by,
+            approved_at: s.approved_at,
+            created_at: s.createdAt,
+            updated_at: s.updatedAt,
+          };
+        }
+      });
+
+      return groups;
+    };
+
     res.status(200).json({
       approved_selections: {
         subjects,
         subject_titles: subjectTitles,
+        grouped: buildGrouped(),
       },
     });
   } catch (err) {

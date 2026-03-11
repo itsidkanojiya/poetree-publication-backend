@@ -3,22 +3,25 @@ const fs = require('fs');
 const User = require('../models/User');
 
 /**
- * Resolves branding (school name and logo path) for a user.
- * Uses user profile fields (school_name, logo). Logo must be a server-controlled path.
+ * Resolves branding (school name, logo path, address) for a user.
+ * Uses user profile fields. Logo must be a server-controlled path.
  * @param {number} userId - User ID
- * @returns {Promise<{ schoolName: string, logoPathOrUrl: string | null }>}
+ * @returns {Promise<{ schoolName: string, logoPathOrUrl: string | null, address: string | null, watermarkOpacity: number }>}
  */
 async function getBrandingForUser(userId) {
   if (!userId) {
-    return { schoolName: null, logoPathOrUrl: null };
+    return { schoolName: null, logoPathOrUrl: null, address: null, watermarkOpacity: 0.3 };
   }
 
   const user = await User.findByPk(userId, {
-    attributes: ['id', 'school_name', 'logo', 'logo_url', 'worksheet_watermark_opacity'],
+    attributes: [
+      'id', 'school_name', 'logo', 'logo_url', 'worksheet_watermark_opacity',
+      'address', 'school_address_city', 'school_address_state', 'school_address_pincode',
+    ],
   });
 
   if (!user) {
-    return { schoolName: null, logoPathOrUrl: null, watermarkOpacity: 0.3 };
+    return { schoolName: null, logoPathOrUrl: null, address: null, watermarkOpacity: 0.3 };
   }
 
   const schoolName = sanitizeSchoolName(user.school_name) || null;
@@ -26,9 +29,18 @@ async function getBrandingForUser(userId) {
   const opacity = user.worksheet_watermark_opacity;
   const watermarkOpacity = typeof opacity === 'number' && opacity >= 0 && opacity <= 1 ? opacity : 0.3;
 
+  const rawAddress = user.address
+    ? String(user.address).trim()
+    : [user.school_address_city, user.school_address_state, user.school_address_pincode]
+        .filter(Boolean)
+        .map(s => String(s).trim())
+        .join(', ');
+  const address = rawAddress ? sanitizeSchoolName(rawAddress) : null;
+
   return {
     schoolName: schoolName || null,
     logoPathOrUrl,
+    address: address || null,
     watermarkOpacity,
   };
 }

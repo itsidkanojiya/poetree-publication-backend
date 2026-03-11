@@ -268,6 +268,7 @@ exports.getPersonalizedPdf = async (req, res) => {
       const personalizationPromise = personalizeWorksheetPdf(canonicalPath, {
         schoolName: branding.schoolName,
         logoPathOrUrl: branding.logoPathOrUrl,
+        address: branding.address,
         watermarkOpacity: branding.watermarkOpacity,
       });
 

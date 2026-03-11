@@ -79,12 +79,14 @@ const User = sequelize.define('users', {
         defaultValue: 0.3,
     },
     subject: {
-        type: DataTypes.INTEGER,
+        type: DataTypes.JSON,
         allowNull: true,
+        defaultValue: [],
     },
     subject_title: {
-        type: DataTypes.INTEGER,
+        type: DataTypes.JSON,
         allowNull: true,
+        defaultValue: [],
     },
     standard: {
         type: DataTypes.JSON,

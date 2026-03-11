@@ -420,18 +420,33 @@ exports.approveUserSelections = async (req, res) => {
       attributes: ["subject_title_id"],
     });
 
-    // Update users table with approved values (as JSON arrays)
+    // Update users table with approved values (JSON arrays)
     const subjectArray = approvedSubjects.map(s => s.subject_id);
     const subjectTitleArray = approvedSubjectTitles.map(st => st.subject_title_id);
 
-    // Convert to JSON strings for MySQL JSON storage
-    user.subject = JSON.stringify(subjectArray);
-    user.subject_title = JSON.stringify(subjectTitleArray);
+    user.subject = subjectArray;
+    user.subject_title = subjectTitleArray;
     user.is_verified = 1; // Activate user
-    await user.save();
 
-    // Send activation email
-    await sendActivationStatusEmail(user.email, user.name, true);
+    try {
+      await user.save();
+    } catch (saveErr) {
+      const msg = saveErr.message || '';
+      if (msg.includes("Incorrect integer value") && (msg.includes("subject") || msg.includes("'[]'"))) {
+        console.error("Error approving user selections (DB schema):", saveErr.message);
+        return res.status(500).json({
+          error: "Database columns users.subject and users.subject_title must be JSON type. Run: node scripts/alter-users-subject-to-json.js",
+        });
+      }
+      throw saveErr;
+    }
+
+    // Send activation email (do not fail approval if email fails)
+    try {
+      await sendActivationStatusEmail(user.email, user.name, true);
+    } catch (emailErr) {
+      console.error("Activation email failed (user still approved):", emailErr.message);
+    }
 
     res.status(200).json({
       message: "User selections approved and user activated successfully",
@@ -563,6 +578,78 @@ exports.getAllSubjectRequests = async (req, res) => {
       const userSubjects = allSubjects.filter(s => s.user_id === user.id);
       const userSubjectTitles = allSubjectTitles.filter(st => st.user_id === user.id);
 
+      const subjectsPending = userSubjects.filter(s => s.status === "pending");
+      const subjectsApproved = userSubjects.filter(s => s.status === "approved");
+      const subjectsRejected = userSubjects.filter(s => s.status === "rejected");
+
+      const titlesPending = userSubjectTitles.filter(st => st.status === "pending");
+      const titlesApproved = userSubjectTitles.filter(st => st.status === "approved");
+      const titlesRejected = userSubjectTitles.filter(st => st.status === "rejected");
+
+      // Helper to build grouped requests per status
+      const buildGrouped = (subjectRows, titleRows) => {
+        const groups = [];
+        const bySubjectId = new Map();
+
+        // Ensure we include a group when only titles exist (no explicit subject row yet)
+        titleRows.forEach(tr => {
+          if (!bySubjectId.has(tr.subject_id)) {
+            bySubjectId.set(tr.subject_id, {
+              subject: {
+                subject_id: tr.subject_id,
+                subject_name: tr.subject?.subject_name || null,
+              },
+              subject_titles: [],
+            });
+            groups.push(bySubjectId.get(tr.subject_id));
+          }
+          bySubjectId.get(tr.subject_id).subject_titles.push({
+            id: tr.id,
+            subject_title_id: tr.subject_title_id,
+            title_name: tr.subjectTitle?.title_name || null,
+            status: tr.status,
+            approved_by: tr.approved_by,
+            approved_at: tr.approved_at,
+            created_at: tr.created_at,
+            updated_at: tr.updated_at,
+          });
+        });
+
+        subjectRows.forEach(sr => {
+          if (!bySubjectId.has(sr.subject_id)) {
+            bySubjectId.set(sr.subject_id, {
+              subject: {
+                id: sr.id,
+                subject_id: sr.subject_id,
+                subject_name: sr.subject?.subject_name || null,
+                status: sr.status,
+                approved_by: sr.approved_by,
+                approved_at: sr.approved_at,
+                created_at: sr.created_at,
+                updated_at: sr.updated_at,
+              },
+              subject_titles: [],
+            });
+            groups.push(bySubjectId.get(sr.subject_id));
+          } else {
+            // If we already have a group from titles-only, still preserve basic subject info
+            const g = bySubjectId.get(sr.subject_id);
+            g.subject = {
+              id: sr.id,
+              subject_id: sr.subject_id,
+              subject_name: sr.subject?.subject_name || null,
+              status: sr.status,
+              approved_by: sr.approved_by,
+              approved_at: sr.approved_at,
+              created_at: sr.created_at,
+              updated_at: sr.updated_at,
+            };
+          }
+        });
+
+        return groups;
+      };
+
       return {
         user: {
           id: user.id,
@@ -575,7 +662,7 @@ exports.getAllSubjectRequests = async (req, res) => {
         },
         requests: {
           subjects: {
-            pending: userSubjects.filter(s => s.status === "pending").map(s => ({
+            pending: subjectsPending.map(s => ({
               id: s.id,
               subject_id: s.subject_id,
               subject_name: s.subject?.subject_name || null,
@@ -583,7 +670,7 @@ exports.getAllSubjectRequests = async (req, res) => {
               created_at: s.created_at,
               updated_at: s.updated_at,
             })),
-            approved: userSubjects.filter(s => s.status === "approved").map(s => ({
+            approved: subjectsApproved.map(s => ({
               id: s.id,
               subject_id: s.subject_id,
               subject_name: s.subject?.subject_name || null,
@@ -593,7 +680,7 @@ exports.getAllSubjectRequests = async (req, res) => {
               created_at: s.created_at,
               updated_at: s.updated_at,
             })),
-            rejected: userSubjects.filter(s => s.status === "rejected").map(s => ({
+            rejected: subjectsRejected.map(s => ({
               id: s.id,
               subject_id: s.subject_id,
               subject_name: s.subject?.subject_name || null,
@@ -606,7 +693,7 @@ exports.getAllSubjectRequests = async (req, res) => {
             total: userSubjects.length,
           },
           subject_titles: {
-            pending: userSubjectTitles.filter(st => st.status === "pending").map(st => ({
+            pending: titlesPending.map(st => ({
               id: st.id,
               subject_id: st.subject_id,
               subject_name: st.subject?.subject_name || null,
@@ -616,7 +703,7 @@ exports.getAllSubjectRequests = async (req, res) => {
               created_at: st.created_at,
               updated_at: st.updated_at,
             })),
-            approved: userSubjectTitles.filter(st => st.status === "approved").map(st => ({
+            approved: titlesApproved.map(st => ({
               id: st.id,
               subject_id: st.subject_id,
               subject_name: st.subject?.subject_name || null,
@@ -628,7 +715,7 @@ exports.getAllSubjectRequests = async (req, res) => {
               created_at: st.created_at,
               updated_at: st.updated_at,
             })),
-            rejected: userSubjectTitles.filter(st => st.status === "rejected").map(st => ({
+            rejected: titlesRejected.map(st => ({
               id: st.id,
               subject_id: st.subject_id,
               subject_name: st.subject?.subject_name || null,
@@ -642,16 +729,22 @@ exports.getAllSubjectRequests = async (req, res) => {
             })),
             total: userSubjectTitles.length,
           },
+          // New: grouped requests useful for UI (Request #1 style)
+          grouped: {
+            pending: buildGrouped(subjectsPending, titlesPending),
+            approved: buildGrouped(subjectsApproved, titlesApproved),
+            rejected: buildGrouped(subjectsRejected, titlesRejected),
+          },
         },
         summary: {
           total_subjects: userSubjects.length,
           total_subject_titles: userSubjectTitles.length,
-          pending_subjects: userSubjects.filter(s => s.status === "pending").length,
-          approved_subjects: userSubjects.filter(s => s.status === "approved").length,
-          rejected_subjects: userSubjects.filter(s => s.status === "rejected").length,
-          pending_subject_titles: userSubjectTitles.filter(st => st.status === "pending").length,
-          approved_subject_titles: userSubjectTitles.filter(st => st.status === "approved").length,
-          rejected_subject_titles: userSubjectTitles.filter(st => st.status === "rejected").length,
+          pending_subjects: subjectsPending.length,
+          approved_subjects: subjectsApproved.length,
+          rejected_subjects: subjectsRejected.length,
+          pending_subject_titles: titlesPending.length,
+          approved_subject_titles: titlesApproved.length,
+          rejected_subject_titles: titlesRejected.length,
         }
       };
     });

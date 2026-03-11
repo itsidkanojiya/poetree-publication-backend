@@ -5,19 +5,28 @@ const personalizationConfig = require('../config/worksheetPersonalization');
 
 const MM_TO_POINTS = 2.834645669;
 
-// Indian-style header colors (saffron accent, navy border, cream background)
+// Header: pure white background (255,255,255)
+const HEADER_BG = rgb(1, 1, 1);
 const BORDER_COLOR = rgb(0.07, 0.23, 0.37);       // navy #12345e
 const ACCENT_COLOR = rgb(1, 0.6, 0.2);            // saffron/orange
-const HEADER_BG = rgb(1, 0.973, 0.906);           // light cream #FFF8E7
 const TEXT_COLOR = rgb(0.1, 0.1, 0.15);
 const BORDER_PT = 1.5;
 const ACCENT_LINE_PT = 2;
+
+/** Sanitize text for safe PDF drawing (same idea as school name). */
+function sanitizeTextForPdf(text) {
+  if (text == null || typeof text !== 'string') return '';
+  return text
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '')
+    .slice(0, 300)
+    .trim();
+}
 
 /**
  * Personalize a canonical worksheet PDF with an Indian-style header and watermark.
  * Does not modify the original file.
  * @param {string} canonicalPdfPath - Absolute path to the worksheet PDF file
- * @param {{ schoolName?: string | null, logoPathOrUrl?: string | null, watermarkOpacity?: number }} branding
+ * @param {{ schoolName?: string | null, logoPathOrUrl?: string | null, address?: string | null, watermarkOpacity?: number }} branding
  * @returns {Promise<Buffer>} Personalized PDF as buffer
  */
 async function personalizeWorksheetPdf(canonicalPdfPath, branding) {
@@ -67,7 +76,7 @@ async function personalizeWorksheetPdf(canonicalPdfPath, branding) {
     const innerBottom = headerBottom + padding;
     const innerTop = headerTop - padding;
 
-    // 1) Header background (cream)
+    // 1) Header background (pure white)
     page.drawRectangle({
       x: 0,
       y: headerBottom,
@@ -129,17 +138,35 @@ async function personalizeWorksheetPdf(canonicalPdfPath, branding) {
       xCursor += logoDims.width + 20;
     }
 
-    // 5) School name - prominent, Indian letterhead style (centered in remaining space or after logo)
+    // 5) School name (bold/uppercase) and address (address on first page only)
     const schoolFontSize = 18;
-    const schoolY = innerBottom + (headerHeightPoints - padding * 2 - schoolFontSize) / 2;
-    const textWidth = width - xCursor - innerRight + innerLeft;
-    // Draw school name (left-aligned after logo, or centered if no logo)
-    page.drawText(schoolName, {
-      x: logoImage ? xCursor : (width / 2) - (schoolName.length * schoolFontSize * 0.28) / 2,
+    const addressFontSize = 10;
+    const lineGap = 4;
+    const schoolNameDisplay = schoolName.toUpperCase();
+    const isFirstPage = i === 0;
+    const hasAddress = isFirstPage && branding.address && String(branding.address).trim().length > 0;
+    const addressText = hasAddress ? sanitizeTextForPdf(branding.address) : '';
+    const blockHeight = schoolFontSize + (hasAddress ? lineGap + addressFontSize : 0);
+    const blockTop = innerBottom + (headerHeightPoints - padding * 2 - blockHeight) / 2 + blockHeight;
+
+    const schoolY = blockTop - schoolFontSize;
+    page.drawText(schoolNameDisplay, {
+      x: logoImage ? xCursor : (width / 2) - (schoolNameDisplay.length * schoolFontSize * 0.28) / 2,
       y: schoolY,
       size: schoolFontSize,
+      font: helvetica,
       color: TEXT_COLOR,
     });
+
+    if (hasAddress && addressText) {
+      page.drawText(addressText, {
+        x: logoImage ? xCursor : (width / 2) - (addressText.length * addressFontSize * 0.28) / 2,
+        y: schoolY - schoolFontSize - lineGap,
+        size: addressFontSize,
+        font: helvetica,
+        color: rgb(0.35, 0.35, 0.4),
+      });
+    }
 
     // 6) Thin divider line inside header (above bottom border)
     const lineY = headerBottom + 8;
