@@ -1,21 +1,41 @@
 const nodemailer = require("nodemailer");
 
-// Brevo SMTP Configuration
-// Uses .env:
-// BREVO_HOST, BREVO_PORT, BREVO_USER, BREVO_PASS, BREVO_FROM
-const transporter = nodemailer.createTransport({
-  host: process.env.BREVO_HOST || "smtp-relay.brevo.com",
-  port: Number(process.env.BREVO_PORT) || 587,
-  secure: false, // Brevo recommends TLS on 587
-  auth: {
-    user: process.env.BREVO_USER,
-    pass: process.env.BREVO_PASS,
-  },
-});
+// SMTP: GoDaddy (or any provider) when SMTP_HOST is set; otherwise Brevo
+// GoDaddy: SMTP_HOST, SMTP_PORT (465), SMTP_USER, SMTP_PASS, SMTP_FROM — SSL on 465
+const useGenericSmtp = process.env.SMTP_HOST;
+const port = useGenericSmtp
+  ? Number(process.env.SMTP_PORT) || 465
+  : Number(process.env.BREVO_PORT) || 587;
+const transporter = nodemailer.createTransport(
+  useGenericSmtp
+    ? {
+        host: process.env.SMTP_HOST,
+        port,
+        secure: port === 465, // SSL for 465 (GoDaddy)
+        auth: {
+          user: process.env.SMTP_USER,
+          pass: process.env.SMTP_PASS,
+        },
+      }
+    : {
+        host: process.env.BREVO_HOST || "smtp-relay.brevo.com",
+        port,
+        secure: false,
+        auth: {
+          user: process.env.BREVO_USER,
+          pass: process.env.BREVO_PASS,
+        },
+      }
+);
+
+function getFrom() {
+  if (useGenericSmtp && process.env.SMTP_FROM) return process.env.SMTP_FROM;
+  return process.env.BREVO_FROM || process.env.BREVO_EMAIL || process.env.SMTP_USER || "";
+}
 
 const sendOTPEmail = async (to, otp) => {
   const mailOptions = {
-    from: `"Poetree Publications" <${process.env.BREVO_FROM || process.env.BREVO_EMAIL}>`,
+    from: `"Poetree Publications" <${getFrom()}>`,
     to,
     subject: "Your OTP for Poetree Signup",
     html: `
@@ -38,7 +58,7 @@ const sendOTPEmail = async (to, otp) => {
 
 const sendNewPasswordEmail = async (to, newPassword) => {
   const mailOptions = {
-    from: `"Poetree Publications" <${process.env.BREVO_FROM || process.env.BREVO_EMAIL}>`,
+    from: `"Poetree Publications" <${getFrom()}>`,
     to,
     subject: "Your New Password for Poetree Account",
     html: `
@@ -61,7 +81,7 @@ const sendNewPasswordEmail = async (to, newPassword) => {
 
 const sendAccountActivationPendingEmail = async (to, name) => {
   const mailOptions = {
-    from: `"Poetree Publications" <${process.env.BREVO_FROM || process.env.BREVO_EMAIL}>`,
+    from: `"Poetree Publications" <${getFrom()}>`,
     to,
     subject: "Account Activation in Process",
     html: `
@@ -92,7 +112,7 @@ const sendActivationStatusEmail = async (to, name, isActivated) => {
     : `<p style="font-size: 16px; color: #e74c3c;">Your account has been <strong>deactivated</strong>. If you believe this is a mistake, please contact support.</p>`;
 
   const mailOptions = {
-    from: `"Poetree Publications" <${process.env.BREVO_FROM || process.env.BREVO_EMAIL}>`,
+    from: `"Poetree Publications" <${getFrom()}>`,
     to,
     subject,
     html: `
