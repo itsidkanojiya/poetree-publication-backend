@@ -24,6 +24,11 @@ const Question = sequelize.define('questions', {
     type: DataTypes.INTEGER,
     allowNull: false,
   },
+  chapter_id: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    references: { model: 'chapters', key: 'chapter_id' },
+  },
   question: {
     type: DataTypes.TEXT,
     allowNull: false,

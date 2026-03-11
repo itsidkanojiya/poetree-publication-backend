@@ -1,4 +1,5 @@
 const WorkSheet = require("../models/Worksheet");
+const Chapter = require("../models/Chapter");
 const UserSubjectTitle = require("../models/UserSubjectTitle");
 const path = require("path");
 const fs = require("fs");
@@ -30,6 +31,7 @@ WorkSheet.belongsTo(SubjectTitle, {
   as: "subject_title",
 });
 WorkSheet.belongsTo(Boards, { foreignKey: "board_id", as: "board" });
+WorkSheet.belongsTo(Chapter, { foreignKey: "chapter_id", as: "chapter" });
 Subject.hasMany(WorkSheet, { foreignKey: "subject_id" });
 SubjectTitle.hasMany(WorkSheet, { foreignKey: "subject_title_id" });
 SubjectTitle.hasMany(WorkSheet, { foreignKey: "board_id" });
@@ -43,6 +45,7 @@ exports.addWorkSheet = async (req, res) => {
       subject_title_id,
       standard: standardLevel,
       user_id,
+      chapter_id,
     } = req.body;
 
     // Get user_id from body or from authenticated user
@@ -65,9 +68,19 @@ exports.addWorkSheet = async (req, res) => {
     if (!worksheetUrl) {
       return res.status(400).json({ error: 'Missing required file: worksheet_url (PDF)' });
     }
-console.log(worksheetUrl);
-console.log(worksheetCoverLink);
-    // Create the answer sheet record with file paths
+
+    let chapterIdVal = null;
+    if (chapter_id != null && chapter_id !== '') {
+      const cid = parseInt(chapter_id, 10);
+      if (!isNaN(cid)) {
+        const chapter = await Chapter.findByPk(cid);
+        if (chapter && chapter.subject_title_id === parseInt(subject_title_id, 10)) {
+          chapterIdVal = cid;
+        }
+      }
+    }
+
+    // Create the worksheet record with file paths
     const worksheet = await WorkSheet.create({
       subject_id,
       worksheet_url: worksheetUrl,
@@ -75,6 +88,7 @@ console.log(worksheetCoverLink);
       subject_title_id,
       board_id,
       standard: standardLevel,  // Maps to 'standard' column in DB
+      chapter_id: chapterIdVal,
     });
 
     // Create UserSubjectTitle entry if user_id is provided
@@ -112,6 +126,7 @@ console.log(worksheetCoverLink);
       worksheet_url: worksheet.worksheet_url ? `${baseUrl}/${worksheet.worksheet_url}` : null,
       worksheet_coverlink: worksheet.worksheet_coverlink ? `${baseUrl}/${worksheet.worksheet_coverlink}` : null,
       standard_name: stdName ?? null,
+      chapter_id: worksheet.chapter_id ?? null,
     };
 
     return res.status(200).json({ success: true, worksheet: formattedWorksheet });
@@ -122,15 +137,26 @@ console.log(worksheetCoverLink);
   }
 };
 
-// Get All Answer Sheets
+// Get All Worksheets
 exports.getAllWorkSheets = async (req, res) => {
   try {
+    const { chapter_id } = req.query;
+    const where = {};
+    if (chapter_id) {
+      const cid = parseInt(chapter_id, 10);
+      if (!isNaN(cid)) where.chapter_id = cid;
+    }
     const workSheets = await WorkSheet.findAll({
+      where: Object.keys(where).length ? where : undefined,
       attributes: [
         "worksheet_id",
+        "subject_id",
+        "subject_title_id",
         "standard",
+        "board_id",
         "worksheet_url",
         "worksheet_coverlink",
+        "chapter_id",
         "createdAt",
         "updatedAt",
       ],
@@ -150,6 +176,12 @@ exports.getAllWorkSheets = async (req, res) => {
           as: "board",
           attributes: ["board_name"],
         },
+        {
+          model: Chapter,
+          as: "chapter",
+          attributes: ["chapter_id", "chapter_name"],
+          required: false,
+        },
       ],
     });
     const baseUrl = `${req.protocol}://${req.get('host')}`;
@@ -161,8 +193,10 @@ exports.getAllWorkSheets = async (req, res) => {
       subject_title: sheet.subject_title ? sheet.subject_title.title_name : null,
       board: sheet.board ? sheet.board.board_name : null,
       standard_name: sheet.standard != null ? stdMap.get(parseInt(sheet.standard, 10)) ?? null : null,
+      chapter_id: sheet.chapter_id ?? null,
+      chapter: sheet.chapter ? { chapter_id: sheet.chapter.chapter_id, chapter_name: sheet.chapter.chapter_name } : null,
       worksheet_url: `${baseUrl}/${sheet.worksheet_url}`,
-      worksheet_coverlink: `${baseUrl}/${sheet.worksheet_coverlink}`,
+      worksheet_coverlink: sheet.worksheet_coverlink ? `${baseUrl}/${sheet.worksheet_coverlink}` : null,
     }));
 
     res.status(200).json(formattedWorkSheets);

@@ -48,6 +48,11 @@ const Paper = sequelize.define('papers', {
     type: DataTypes.INTEGER,
     allowNull: true, // Optional - from Subject Title dropdown
   },
+  chapter_id: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    references: { model: 'chapters', key: 'chapter_id' },
+  },
   logo: {
     type: DataTypes.STRING,
     allowNull: true, // Now nullable - will be fetched from user table

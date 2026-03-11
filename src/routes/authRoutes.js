@@ -15,6 +15,7 @@ const {
   getMyPendingSelections,
   getMyApprovedSelections,
   updateMySelections,
+  removeMyApprovedSelections,
 } = require('../controllers/authController');
 const verifyTokenMiddleware = require('../middlewares/verifyToken');
 const upload = require('../middlewares/upload');
@@ -38,5 +39,6 @@ router.get('/my-selections', verifyTokenMiddleware, getMySelections);
 router.get('/my-selections/pending', verifyTokenMiddleware, getMyPendingSelections);
 router.get('/my-selections/approved', verifyTokenMiddleware, getMyApprovedSelections);
 router.put('/my-selections', verifyTokenMiddleware, updateMySelections);
+router.post('/my-selections/remove', verifyTokenMiddleware, removeMyApprovedSelections);
 
 module.exports = router;

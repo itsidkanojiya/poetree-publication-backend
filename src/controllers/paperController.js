@@ -1,5 +1,6 @@
 const Paper = require('../models/Paper'); // Adjust path if needed
 const User = require('../models/User');
+const Chapter = require('../models/Chapter');
 const { SubjectTitle } = require('../models/Subjects');
 const Header = require('../models/Header');
 const { Op } = require('sequelize');
@@ -29,6 +30,7 @@ exports.addPaper = async (req, res) => {
             division, 
             subject, 
             subject_title_id,
+            chapter_id,
             board, 
             paper_title,
             body,
@@ -66,6 +68,23 @@ exports.addPaper = async (req, res) => {
         // Validate type
         if (!allowedTypes.includes(type.toLowerCase())) {
             return res.status(400).json({ success: false, message: "Invalid paper type. Allowed values: 'custom', 'default'." });
+        }
+
+        let chapterIdVal = null;
+        if (chapter_id != null && chapter_id !== '') {
+            const cid = parseInt(chapter_id, 10);
+            if (isNaN(cid)) {
+                return res.status(400).json({ success: false, message: "chapter_id must be a number" });
+            }
+            const chapter = await Chapter.findByPk(cid);
+            if (!chapter) {
+                return res.status(404).json({ success: false, message: "Chapter not found" });
+            }
+            const stId = subject_title_id ? parseInt(subject_title_id, 10) : null;
+            if (stId != null && chapter.subject_title_id !== stId) {
+                return res.status(400).json({ success: false, message: "Chapter does not belong to the selected subject title" });
+            }
+            chapterIdVal = cid;
         }
 
         // Fetch user to get school_name, address, and logo
@@ -106,6 +125,7 @@ exports.addPaper = async (req, res) => {
             address, // From user table
             subject,
             subject_title_id: subject_title_id ? parseInt(subject_title_id) : null,
+            chapter_id: chapterIdVal,
             logo, // From user table
             logo_url: null, // Not used anymore
             board,
@@ -484,6 +504,7 @@ exports.createTemplate = async (req, res) => {
             address, 
             subject, 
             subject_title_id,
+            chapter_id,
             board, 
             paper_title,
             body,
@@ -538,6 +559,21 @@ exports.createTemplate = async (req, res) => {
             }
         }
 
+        // Optional chapter_id for template (null allowed)
+        let templateChapterId = null;
+        if (chapter_id != null && chapter_id !== '') {
+            const cid = parseInt(chapter_id, 10);
+            if (!isNaN(cid)) {
+                const chapter = await Chapter.findByPk(cid);
+                if (chapter) {
+                    const stId = subject_title_id ? parseInt(subject_title_id, 10) : null;
+                    if (stId == null || chapter.subject_title_id === stId) {
+                        templateChapterId = cid;
+                    }
+                }
+            }
+        }
+
         // Handle logo: prioritize file upload, then URL, then default
         let logo = "/uploads/1739360660741.JPG"; // Default logo
         if (req.file) {
@@ -567,6 +603,7 @@ exports.createTemplate = async (req, res) => {
             address: address || null,
             subject,
             subject_title_id: subject_title_id ? parseInt(subject_title_id) : null,
+            chapter_id: templateChapterId,
             logo,
             logo_url: logo_url && logo_url.trim() !== '' ? logo_url.trim() : null,
             board,

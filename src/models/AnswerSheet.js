@@ -6,6 +6,11 @@ const AnswerSheet = sequelize.define('answersheets', {
     answer_sheet_id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
     subject_id: { type: DataTypes.INTEGER, allowNull: false },
     subject_title_id: { type: DataTypes.INTEGER, allowNull: false },
+    chapter_id: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+        references: { model: 'chapters', key: 'chapter_id' },
+    },
     standard: { 
         type: DataTypes.INTEGER, 
         allowNull: false, 

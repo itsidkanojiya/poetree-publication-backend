@@ -465,6 +465,70 @@ exports.approveUserSelections = async (req, res) => {
   }
 };
 
+// Admin: remove approved subject/subject-title selections for a user (revoke)
+exports.removeUserApprovedSelections = async (req, res) => {
+  try {
+    const userId = parseInt(req.params.userId, 10);
+    if (isNaN(userId)) {
+      return res.status(400).json({ error: "Invalid user id" });
+    }
+
+    const user = await User.findByPk(userId);
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    const { user_subject_ids, user_subject_title_ids } = req.body || {};
+    const toDeleteSubjectIds = Array.isArray(user_subject_ids)
+      ? user_subject_ids.map((id) => parseInt(id, 10)).filter((id) => !isNaN(id))
+      : [];
+    const toDeleteTitleIds = Array.isArray(user_subject_title_ids)
+      ? user_subject_title_ids.map((id) => parseInt(id, 10)).filter((id) => !isNaN(id))
+      : [];
+
+    if (toDeleteSubjectIds.length === 0 && toDeleteTitleIds.length === 0) {
+      return res.status(400).json({
+        error: "Provide at least one user_subject_ids or user_subject_title_ids (array of row ids).",
+      });
+    }
+
+    if (toDeleteSubjectIds.length > 0) {
+      await UserSubject.destroy({
+        where: {
+          id: { [Op.in]: toDeleteSubjectIds },
+          user_id: userId,
+          status: "approved",
+        },
+      });
+    }
+    if (toDeleteTitleIds.length > 0) {
+      await UserSubjectTitle.destroy({
+        where: {
+          id: { [Op.in]: toDeleteTitleIds },
+          user_id: userId,
+          status: "approved",
+        },
+      });
+    }
+
+    const [remainingSubjects, remainingTitles] = await Promise.all([
+      UserSubject.findAll({ where: { user_id: userId, status: "approved" }, attributes: ["subject_id"] }),
+      UserSubjectTitle.findAll({ where: { user_id: userId, status: "approved" }, attributes: ["subject_title_id"] }),
+    ]);
+    user.subject = remainingSubjects.map((s) => s.subject_id);
+    user.subject_title = remainingTitles.map((st) => st.subject_title_id);
+    await user.save();
+
+    res.status(200).json({
+      message: "Approved selection(s) removed successfully.",
+      removed: { user_subject_ids: toDeleteSubjectIds, user_subject_title_ids: toDeleteTitleIds },
+    });
+  } catch (err) {
+    console.error("Error removing user approved selections:", err);
+    res.status(500).json({ error: err.message });
+  }
+};
+
 // Activate user: always set is_verified = 1 (with or without pending selections).
 exports.activateUser = async (req, res) => {
   try {
@@ -511,18 +575,31 @@ exports.activateUser = async (req, res) => {
 exports.deActivateUser = async (req, res) => {
   try {
     const { id } = req.params;
+    const userId = parseInt(id, 10);
+    if (isNaN(userId)) {
+      return res.status(400).json({ error: "Invalid user id" });
+    }
 
-    const user = await User.findByPk(id);
+    const user = await User.findByPk(userId);
     if (!user) {
       return res.status(404).json({ error: "User not found" });
     }
 
+    // Remove all subject and subject-title requests for this user
+    await Promise.all([
+      UserSubject.destroy({ where: { user_id: userId } }),
+      UserSubjectTitle.destroy({ where: { user_id: userId } }),
+    ]);
+
+    // Clear approved selections stored on the user profile
     user.is_verified = 0;
+    user.subject = [];
+    user.subject_title = [];
     await user.save();
 
-await sendActivationStatusEmail(user.email, user.name, true);
+    await sendActivationStatusEmail(user.email, user.name, true);
 
-    res.status(200).json({ message: "User deactivated successfully", user });
+    res.status(200).json({ message: "User deactivated successfully. All subject and subject-title requests have been removed.", user });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -605,6 +682,7 @@ exports.getAllSubjectRequests = async (req, res) => {
           }
           bySubjectId.get(tr.subject_id).subject_titles.push({
             id: tr.id,
+            user_subject_title_id: tr.id,
             subject_title_id: tr.subject_title_id,
             title_name: tr.subjectTitle?.title_name || null,
             status: tr.status,
@@ -620,6 +698,7 @@ exports.getAllSubjectRequests = async (req, res) => {
             bySubjectId.set(sr.subject_id, {
               subject: {
                 id: sr.id,
+                user_subject_id: sr.id,
                 subject_id: sr.subject_id,
                 subject_name: sr.subject?.subject_name || null,
                 status: sr.status,
@@ -636,6 +715,7 @@ exports.getAllSubjectRequests = async (req, res) => {
             const g = bySubjectId.get(sr.subject_id);
             g.subject = {
               id: sr.id,
+              user_subject_id: sr.id,
               subject_id: sr.subject_id,
               subject_name: sr.subject?.subject_name || null,
               status: sr.status,
@@ -672,6 +752,7 @@ exports.getAllSubjectRequests = async (req, res) => {
             })),
             approved: subjectsApproved.map(s => ({
               id: s.id,
+              user_subject_id: s.id,
               subject_id: s.subject_id,
               subject_name: s.subject?.subject_name || null,
               status: s.status,
@@ -705,6 +786,7 @@ exports.getAllSubjectRequests = async (req, res) => {
             })),
             approved: titlesApproved.map(st => ({
               id: st.id,
+              user_subject_title_id: st.id,
               subject_id: st.subject_id,
               subject_name: st.subject?.subject_name || null,
               subject_title_id: st.subject_title_id,

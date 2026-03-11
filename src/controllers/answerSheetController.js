@@ -1,4 +1,5 @@
 const AnswerSheet = require("../models/AnswerSheet");
+const Chapter = require("../models/Chapter");
 const UserSubjectTitle = require("../models/UserSubjectTitle");
 const path = require("path");
 const fs = require("fs");
@@ -25,6 +26,7 @@ AnswerSheet.belongsTo(SubjectTitle, {
   as: "subject_title",
 });
 AnswerSheet.belongsTo(Boards, { foreignKey: "board_id", as: "board" });
+AnswerSheet.belongsTo(Chapter, { foreignKey: "chapter_id", as: "chapter" });
 Subject.hasMany(AnswerSheet, { foreignKey: "subject_id" });
 SubjectTitle.hasMany(AnswerSheet, { foreignKey: "subject_title_id" });
 SubjectTitle.hasMany(AnswerSheet, { foreignKey: "board_id" });
@@ -38,6 +40,7 @@ exports.addAnswerSheet = async (req, res) => {
       subject_title_id,
       standard: standardLevel,
       user_id,
+      chapter_id,
     } = req.body;
 
     // Get user_id from body or from authenticated user
@@ -67,8 +70,18 @@ exports.addAnswerSheet = async (req, res) => {
         .status(400)
         .json({ error: "Missing required file: answersheet_url (PDF)" });
     }
-console.log(answersheetUrl);
-console.log(answersheetCoverLink);
+
+    let chapterIdVal = null;
+    if (chapter_id != null && chapter_id !== '') {
+      const cid = parseInt(chapter_id, 10);
+      if (!isNaN(cid)) {
+        const chapter = await Chapter.findByPk(cid);
+        if (chapter && chapter.subject_title_id === parseInt(subject_title_id, 10)) {
+          chapterIdVal = cid;
+        }
+      }
+    }
+
     // Create the answer sheet record with file paths
     const answersheet = await AnswerSheet.create({
       subject_id,
@@ -77,6 +90,7 @@ console.log(answersheetCoverLink);
       subject_title_id,
       board_id,
       standard: standardLevel, // Maps to 'standard' column in DB
+      chapter_id: chapterIdVal,
     });
 
     // Create UserSubjectTitle entry if user_id is provided
@@ -118,6 +132,7 @@ console.log(answersheetCoverLink);
         ? `${baseUrl}/${answersheet.answersheet_coverlink}`
         : null,
       standard_name: stdName ?? null,
+      chapter_id: answersheet.chapter_id ?? null,
     };
 
     return res
@@ -132,12 +147,23 @@ console.log(answersheetCoverLink);
 // Get All Answer Sheets
 exports.getAllAnswerSheets = async (req, res) => {
   try {
+    const { chapter_id } = req.query;
+    const where = {};
+    if (chapter_id) {
+      const cid = parseInt(chapter_id, 10);
+      if (!isNaN(cid)) where.chapter_id = cid;
+    }
     const answerSheets = await AnswerSheet.findAll({
+      where: Object.keys(where).length ? where : undefined,
       attributes: [
         "answer_sheet_id",
+        "subject_id",
+        "subject_title_id",
         "standard",
+        "board_id",
         "answersheet_url",
         "answersheet_coverlink",
+        "chapter_id",
         "createdAt",
         "updatedAt",
       ],
@@ -157,6 +183,12 @@ exports.getAllAnswerSheets = async (req, res) => {
           as: "board",
           attributes: ["board_name"],
         },
+        {
+          model: Chapter,
+          as: "chapter",
+          attributes: ["chapter_id", "chapter_name"],
+          required: false,
+        },
       ],
     });
     const baseUrl = `${req.protocol}://${req.get("host")}`;
@@ -168,8 +200,10 @@ exports.getAllAnswerSheets = async (req, res) => {
       subject_title: sheet.subject_title ? sheet.subject_title.title_name : null,
       board: sheet.board ? sheet.board.board_name : null,
       standard_name: sheet.standard != null ? stdMap.get(parseInt(sheet.standard, 10)) ?? null : null,
+      chapter_id: sheet.chapter_id ?? null,
+      chapter: sheet.chapter ? { chapter_id: sheet.chapter.chapter_id, chapter_name: sheet.chapter.chapter_name } : null,
       answersheet_url: `${baseUrl}/${sheet.answersheet_url}`,
-      answersheet_coverlink: `${baseUrl}/${sheet.answersheet_coverlink}`,
+      answersheet_coverlink: sheet.answersheet_coverlink ? `${baseUrl}/${sheet.answersheet_coverlink}` : null,
     }));
 
     res.status(200).json(formattedAnswerSheets);

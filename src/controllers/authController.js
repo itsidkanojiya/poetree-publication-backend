@@ -922,6 +922,67 @@ exports.updateMySelections = async (req, res) => {
   }
 };
 
+// Remove approved subject/subject-title selections (user can revoke their own approved selections)
+exports.removeMyApprovedSelections = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { user_subject_ids, user_subject_title_ids } = req.body || {};
+
+    const toDeleteSubjectIds = Array.isArray(user_subject_ids)
+      ? user_subject_ids.map((id) => parseInt(id, 10)).filter((id) => !isNaN(id))
+      : [];
+    const toDeleteTitleIds = Array.isArray(user_subject_title_ids)
+      ? user_subject_title_ids.map((id) => parseInt(id, 10)).filter((id) => !isNaN(id))
+      : [];
+
+    if (toDeleteSubjectIds.length === 0 && toDeleteTitleIds.length === 0) {
+      return res.status(400).json({
+        error: "Provide at least one user_subject_ids or user_subject_title_ids (array of row ids from my-selections).",
+      });
+    }
+
+    // Only delete rows that belong to this user and are approved
+    if (toDeleteSubjectIds.length > 0) {
+      await UserSubject.destroy({
+        where: {
+          id: { [Op.in]: toDeleteSubjectIds },
+          user_id: userId,
+          status: "approved",
+        },
+      });
+    }
+    if (toDeleteTitleIds.length > 0) {
+      await UserSubjectTitle.destroy({
+        where: {
+          id: { [Op.in]: toDeleteTitleIds },
+          user_id: userId,
+          status: "approved",
+        },
+      });
+    }
+
+    // Rebuild user.subject and user.subject_title from remaining approved rows
+    const [remainingSubjects, remainingTitles] = await Promise.all([
+      UserSubject.findAll({ where: { user_id: userId, status: "approved" }, attributes: ["subject_id"] }),
+      UserSubjectTitle.findAll({ where: { user_id: userId, status: "approved" }, attributes: ["subject_title_id"] }),
+    ]);
+    const user = await User.findByPk(userId);
+    if (user) {
+      user.subject = remainingSubjects.map((s) => s.subject_id);
+      user.subject_title = remainingTitles.map((st) => st.subject_title_id);
+      await user.save();
+    }
+
+    res.status(200).json({
+      message: "Approved selection(s) removed successfully.",
+      removed: { user_subject_ids: toDeleteSubjectIds, user_subject_title_ids: toDeleteTitleIds },
+    });
+  } catch (err) {
+    console.error("Error removing approved selections:", err);
+    res.status(500).json({ error: err.message });
+  }
+};
+
 // Get User Profile
 exports.getProfile = async (req, res) => {
   try {

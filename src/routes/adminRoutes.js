@@ -11,6 +11,7 @@ const {
   getPendingUsers,
   getUserSelections,
   approveUserSelections,
+  removeUserApprovedSelections,
   getAllSubjectRequests,
 } = require("../controllers/adminController");
 const authMiddleware = require("../middlewares/authMiddleware");
@@ -28,6 +29,7 @@ router.get("/subject-requests", authMiddleware.verifyAdmin, getAllSubjectRequest
 router.get("/user/:id/selections", authMiddleware.verifyAdmin, getUserSelections);
 router.put("/activate/:id", authMiddleware.verifyAdmin, activateUser);
 router.post("/approve-selections/:id", authMiddleware.verifyAdmin, approveUserSelections);
+router.post("/users/:userId/selections/remove", authMiddleware.verifyAdmin, removeUserApprovedSelections);
 router.put("/deactivate/:id", authMiddleware.verifyAdmin, deActivateUser);
 router.delete("/user/delete/:id", authMiddleware.verifyAdmin, deleteUser);
 

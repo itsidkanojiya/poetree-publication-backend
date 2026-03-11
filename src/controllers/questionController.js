@@ -1,4 +1,5 @@
 const Question = require("../models/Question");
+const Chapter = require("../models/Chapter");
 const fs = require("fs");
 const path = require("path");
 const { Op } = require("sequelize");
@@ -9,6 +10,7 @@ Question.belongsTo(SubjectTitle, {
   as: "subject_title",
 });
 Question.belongsTo(Boards, { foreignKey: "board_id", as: "board" });
+Question.belongsTo(Chapter, { foreignKey: "chapter_id", as: "chapter" });
 Subject.hasMany(Question, { foreignKey: "subject_id" });
 SubjectTitle.hasMany(Question, { foreignKey: "subject_title_id" });
 SubjectTitle.hasMany(Question, { foreignKey: "board_id" });
@@ -72,6 +74,7 @@ exports.addQuestion = async (req, res) => {
       subject_id,
       standard: standardLevel,
       board_id,
+      chapter_id,
       question,
       answer,
       solution,
@@ -85,6 +88,20 @@ exports.addQuestion = async (req, res) => {
               error: "Missing required fields",
               required: ["subject_title_id", "subject_id", "standard", "board_id", "question", "type", "marks"]
             });
+        }
+        if (!chapter_id) {
+            return res.status(400).json({ error: "chapter_id is required" });
+        }
+        const chapterIdNum = parseInt(chapter_id, 10);
+        if (isNaN(chapterIdNum)) {
+            return res.status(400).json({ error: "chapter_id must be a number" });
+        }
+        const chapter = await Chapter.findByPk(chapterIdNum);
+        if (!chapter) {
+            return res.status(404).json({ error: "Chapter not found" });
+        }
+        if (chapter.subject_title_id !== parseInt(subject_title_id, 10)) {
+            return res.status(400).json({ error: "Chapter does not belong to the selected subject title" });
         }
         // Validate question type
         if (!['mcq', 'short', 'long', 'blank', 'onetwo', 'truefalse', 'passage', 'match'].includes(type)) {
@@ -132,6 +149,7 @@ exports.addQuestion = async (req, res) => {
             subject_id,
             standard: standardLevel,
             board_id,
+            chapter_id: chapterIdNum,
             question,
             answer: answerToStore,
             solution,
@@ -163,6 +181,23 @@ exports.editQuestion = async (req, res) => {
     if (body.standard !== undefined && body.standard !== '') updates.standard = parseInt(body.standard, 10);
     if (body.board_id !== undefined && body.board_id !== '') updates.board_id = parseInt(body.board_id, 10);
     if (body.marks !== undefined && body.marks !== '') updates.marks = parseInt(body.marks, 10);
+    if (body.chapter_id !== undefined) {
+      if (body.chapter_id === null || body.chapter_id === '') {
+        updates.chapter_id = null;
+      } else {
+        const cid = parseInt(body.chapter_id, 10);
+        if (isNaN(cid)) {
+          return res.status(400).json({ error: "chapter_id must be a number" });
+        }
+        const chapter = await Chapter.findByPk(cid);
+        if (!chapter) return res.status(404).json({ error: "Chapter not found" });
+        const stId = body.subject_title_id !== undefined ? parseInt(body.subject_title_id, 10) : existingQuestion.subject_title_id;
+        if (chapter.subject_title_id !== stId) {
+          return res.status(400).json({ error: "Chapter does not belong to the selected subject title" });
+        }
+        updates.chapter_id = cid;
+      }
+    }
     if (body.question !== undefined) updates.question = String(body.question).trim();
     if (body.type !== undefined && body.type !== '') updates.type = body.type;
 
@@ -271,7 +306,8 @@ exports.getAllQuestions = async (req, res) => {
       standard, 
       board_id, 
       type, 
-      marks 
+      marks,
+      chapter_id,
     } = req.query;
 
     // Build query dynamically with support for arrays
@@ -349,6 +385,18 @@ exports.getAllQuestions = async (req, res) => {
       }
     }
 
+    // Filter by chapter_id (supports single value or comma-separated values)
+    if (chapter_id) {
+      const chapterIds = Array.isArray(chapter_id)
+        ? chapter_id
+        : chapter_id.split(',').map(id => parseInt(id.trim())).filter(id => !isNaN(id));
+      if (chapterIds.length === 1) {
+        query.chapter_id = chapterIds[0];
+      } else if (chapterIds.length > 1) {
+        query.chapter_id = { [Op.in]: chapterIds };
+      }
+    }
+
     console.log('[getAllQuestions] Query filters:', JSON.stringify(query, null, 2));
 
     const questions = await Question.findAll({
@@ -357,6 +405,7 @@ exports.getAllQuestions = async (req, res) => {
         "subject_id",
         "subject_title_id",
         "standard",
+        "chapter_id",
         "question",
         "answer",
         "solution",
@@ -382,6 +431,12 @@ exports.getAllQuestions = async (req, res) => {
           model: Boards,
           as: "board",
           attributes: ["board_id", "board_name"],
+        },
+        {
+          model: Chapter,
+          as: "chapter",
+          attributes: ["chapter_id", "chapter_name"],
+          required: false,
         },
       ],
     });
@@ -420,6 +475,7 @@ exports.getAllQuestions = async (req, res) => {
         subject_id: questionData.subject_id,
         subject_title_id: questionData.subject_title_id,
         standard: questionData.standard,
+        chapter_id: questionData.chapter_id,
         question: questionData.question,
         answer: answerOut,
         solution: questionData.solution,
@@ -438,6 +494,10 @@ exports.getAllQuestions = async (req, res) => {
         board: q.board ? {
           board_id: q.board.board_id,
           board_name: q.board.board_name
+        } : null,
+        chapter: q.chapter ? {
+          chapter_id: q.chapter.chapter_id,
+          chapter_name: q.chapter.chapter_name
         } : null,
         image_url: questionData.image_url ? `${baseUrl}/${questionData.image_url}` : null,
       };
