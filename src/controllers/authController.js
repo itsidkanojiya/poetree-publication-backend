@@ -13,6 +13,13 @@ const generateOTP = () => Math.floor(100000 + Math.random() * 900000).toString()
 const generateRandomPassword = () =>
   Math.random().toString(36).slice(-8);
 
+const VALID_WATERMARK_TYPES = ['none', 'text', 'image', 'text_and_image'];
+function normalizeWatermarkType(value) {
+  if (value == null || typeof value !== 'string') return 'text';
+  const v = value.trim().toLowerCase();
+  return VALID_WATERMARK_TYPES.includes(v) ? v : null;
+}
+
 exports.signup = async (req, res) => {
   try {
     const {
@@ -938,6 +945,8 @@ exports.getProfile = async (req, res) => {
       user.worksheet_watermark_opacity >= 0 && user.worksheet_watermark_opacity <= 1
       ? user.worksheet_watermark_opacity
       : 0.3;
+    const watermarkType = normalizeWatermarkType(user.worksheet_watermark_type);
+    const watermarkText = user.worksheet_watermark_text != null ? String(user.worksheet_watermark_text).trim().slice(0, 200) : '';
 
     const userResponse = {
       id: user.id,
@@ -956,10 +965,14 @@ exports.getProfile = async (req, res) => {
       is_verified: user.is_verified,
       is_number_verified: user.is_number_verified,
       worksheet_watermark_opacity: watermarkOpacity,
+      worksheet_watermark_type: watermarkType,
+      worksheet_watermark_text: watermarkText,
       worksheet_preview: {
         school_name: user.school_name || 'Your School',
         logo_url: logoUrl,
         watermark_opacity: watermarkOpacity,
+        watermark_type: watermarkType,
+        watermark_text: watermarkText,
       },
     };
 
@@ -993,6 +1006,8 @@ exports.updateProfile = async (req, res) => {
       school_principal_name,
       logo_url,
       worksheet_watermark_opacity,
+      worksheet_watermark_type,
+      worksheet_watermark_text,
     } = req.body;
 
     // Handle logo: prioritize file upload, then URL, then keep existing
@@ -1023,6 +1038,19 @@ exports.updateProfile = async (req, res) => {
         personalizedPdfCache.invalidateByUser(userId);
       }
     }
+    if (worksheet_watermark_type !== undefined) {
+      const normalized = normalizeWatermarkType(worksheet_watermark_type);
+      if (normalized) {
+        updateData.worksheet_watermark_type = normalized;
+        personalizedPdfCache.invalidateByUser(userId);
+      } else {
+        return res.status(400).json({ error: 'Invalid worksheet_watermark_type. Use: none, text, image, or text_and_image.' });
+      }
+    }
+    if (worksheet_watermark_text !== undefined) {
+      updateData.worksheet_watermark_text = String(worksheet_watermark_text ?? '').trim().slice(0, 200);
+      personalizedPdfCache.invalidateByUser(userId);
+    }
 
     await user.update(updateData);
 
@@ -1036,6 +1064,8 @@ exports.updateProfile = async (req, res) => {
       user.worksheet_watermark_opacity >= 0 && user.worksheet_watermark_opacity <= 1
       ? user.worksheet_watermark_opacity
       : 0.3;
+    const watermarkType = normalizeWatermarkType(user.worksheet_watermark_type);
+    const watermarkText = user.worksheet_watermark_text != null ? String(user.worksheet_watermark_text).trim().slice(0, 200) : '';
 
     const userResponse = {
       id: user.id,
@@ -1054,10 +1084,14 @@ exports.updateProfile = async (req, res) => {
       is_verified: user.is_verified,
       is_number_verified: user.is_number_verified,
       worksheet_watermark_opacity: watermarkOpacity,
+      worksheet_watermark_type: watermarkType,
+      worksheet_watermark_text: watermarkText,
       worksheet_preview: {
         school_name: user.school_name || 'Your School',
         logo_url: logoUrl,
         watermark_opacity: watermarkOpacity,
+        watermark_type: watermarkType,
+        watermark_text: watermarkText,
       },
     };
 
@@ -1084,7 +1118,7 @@ exports.getWorksheetPreview = async (req, res) => {
     }
 
     const user = await User.findByPk(userId, {
-      attributes: ['id', 'school_name', 'logo', 'logo_url', 'worksheet_watermark_opacity'],
+      attributes: ['id', 'school_name', 'logo', 'logo_url', 'worksheet_watermark_opacity', 'worksheet_watermark_type', 'worksheet_watermark_text'],
     });
     if (!user) {
       return res.status(404).json({ error: "User not found." });
@@ -1096,6 +1130,8 @@ exports.getWorksheetPreview = async (req, res) => {
       : (user.logo || user.logo_url || null);
     const opacity = user.worksheet_watermark_opacity;
     const watermarkOpacity = typeof opacity === 'number' && opacity >= 0 && opacity <= 1 ? opacity : 0.3;
+    const watermarkType = normalizeWatermarkType(user.worksheet_watermark_type);
+    const watermarkText = user.worksheet_watermark_text != null ? String(user.worksheet_watermark_text).trim().slice(0, 200) : '';
 
     res.status(200).json({
       success: true,
@@ -1103,6 +1139,8 @@ exports.getWorksheetPreview = async (req, res) => {
         school_name: user.school_name || 'Your School',
         logo_url: logoUrl,
         watermark_opacity: watermarkOpacity,
+        watermark_type: watermarkType,
+        watermark_text: watermarkText,
       },
     });
   } catch (err) {

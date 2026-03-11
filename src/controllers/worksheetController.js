@@ -270,6 +270,9 @@ exports.getPersonalizedPdf = async (req, res) => {
         logoPathOrUrl: branding.logoPathOrUrl,
         address: branding.address,
         watermarkOpacity: branding.watermarkOpacity,
+        watermark_type: branding.watermark_type,
+        watermark_text: branding.watermark_text,
+        watermark_image_path_or_url: branding.watermark_image_path_or_url,
       });
 
       const timeoutPromise = new Promise((_, reject) => {

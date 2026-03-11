@@ -15,4 +15,6 @@ module.exports = {
   maxPagesToPersonalize: Number(process.env.WORKSHEET_MAX_PAGES_PERSONALIZE) || 50,
   /** Default school name when none provided */
   defaultSchoolName: process.env.WORKSHEET_DEFAULT_SCHOOL_NAME || 'Your School',
+  /** Max height in points for watermark image (when type is image or text_and_image) */
+  watermarkImageMaxHeightPt: Number(process.env.WORKSHEET_WATERMARK_IMAGE_MAX_HEIGHT_PT) || 50,
 };

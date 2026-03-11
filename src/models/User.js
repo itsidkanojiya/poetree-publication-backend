@@ -78,6 +78,15 @@ const User = sequelize.define('users', {
         allowNull: true,
         defaultValue: 0.3,
     },
+    worksheet_watermark_type: {
+        type: DataTypes.STRING(32),
+        allowNull: true,
+        defaultValue: 'text',
+    },
+    worksheet_watermark_text: {
+        type: DataTypes.STRING(200),
+        allowNull: true,
+    },
     subject: {
         type: DataTypes.JSON,
         allowNull: true,

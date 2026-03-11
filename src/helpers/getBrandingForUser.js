@@ -2,32 +2,50 @@ const path = require('path');
 const fs = require('fs');
 const User = require('../models/User');
 
+const VALID_WATERMARK_TYPES = ['none', 'text', 'image', 'text_and_image'];
+
+function normalizeWatermarkType(value) {
+  if (value == null || typeof value !== 'string') return 'text';
+  const v = value.trim().toLowerCase();
+  return VALID_WATERMARK_TYPES.includes(v) ? v : 'text';
+}
+
 /**
- * Resolves branding (school name, logo path, address) for a user.
+ * Resolves branding (school name, logo path, address, watermark options) for a user.
  * Uses user profile fields. Logo must be a server-controlled path.
  * @param {number} userId - User ID
- * @returns {Promise<{ schoolName: string, logoPathOrUrl: string | null, address: string | null, watermarkOpacity: number }>}
+ * @returns {Promise<{ schoolName, logoPathOrUrl, address, watermarkOpacity, watermark_type, watermark_text, watermark_image_path_or_url }>}
  */
 async function getBrandingForUser(userId) {
-  if (!userId) {
-    return { schoolName: null, logoPathOrUrl: null, address: null, watermarkOpacity: 0.3 };
-  }
+  const defaults = {
+    schoolName: null,
+    logoPathOrUrl: null,
+    address: null,
+    watermarkOpacity: 0.3,
+    watermark_type: 'text',
+    watermark_text: '',
+    watermark_image_path_or_url: null,
+  };
+  if (!userId) return defaults;
 
   const user = await User.findByPk(userId, {
     attributes: [
       'id', 'school_name', 'logo', 'logo_url', 'worksheet_watermark_opacity',
+      'worksheet_watermark_type', 'worksheet_watermark_text',
       'address', 'school_address_city', 'school_address_state', 'school_address_pincode',
     ],
   });
 
-  if (!user) {
-    return { schoolName: null, logoPathOrUrl: null, address: null, watermarkOpacity: 0.3 };
-  }
+  if (!user) return defaults;
 
   const schoolName = sanitizeSchoolName(user.school_name) || null;
   const logoPathOrUrl = resolveTrustedLogoPath(user.logo, user.logo_url);
   const opacity = user.worksheet_watermark_opacity;
   const watermarkOpacity = typeof opacity === 'number' && opacity >= 0 && opacity <= 1 ? opacity : 0.3;
+  const watermark_type = normalizeWatermarkType(user.worksheet_watermark_type);
+  const customText = user.worksheet_watermark_text != null ? String(user.worksheet_watermark_text).trim().slice(0, 200) : '';
+  const watermark_text = customText || schoolName || 'Your School';
+  const watermark_image_path_or_url = (watermark_type === 'image' || watermark_type === 'text_and_image') ? logoPathOrUrl : null;
 
   const rawAddress = user.address
     ? String(user.address).trim()
@@ -42,6 +60,9 @@ async function getBrandingForUser(userId) {
     logoPathOrUrl,
     address: address || null,
     watermarkOpacity,
+    watermark_type,
+    watermark_text,
+    watermark_image_path_or_url,
   };
 }
 
