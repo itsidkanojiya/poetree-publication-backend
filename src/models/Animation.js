@@ -2,6 +2,7 @@ const { DataTypes } = require('sequelize');
 const sequelize = require('../config/db');
 const { Subject, SubjectTitle, Boards } = require('./Subjects');
 const Standard = require('./Standard');
+const Chapter = require('./Chapter');
 
 const Animation = sequelize.define('animations', {
   animation_id: {
@@ -40,6 +41,11 @@ const Animation = sequelize.define('animations', {
     type: DataTypes.INTEGER,
     allowNull: false,
   },
+  chapter_id: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    references: { model: 'chapters', key: 'chapter_id' },
+  },
 }, {
   tableName: 'animations',
   timestamps: true,
@@ -51,5 +57,6 @@ Animation.belongsTo(Subject, { foreignKey: 'subject_id', as: 'subject' });
 Animation.belongsTo(SubjectTitle, { foreignKey: 'subject_title_id', as: 'subject_title' });
 Animation.belongsTo(Boards, { foreignKey: 'board_id', as: 'board' });
 Animation.belongsTo(Standard, { foreignKey: 'standard_id', as: 'standard' });
+Animation.belongsTo(Chapter, { foreignKey: 'chapter_id', as: 'chapter' });
 
 module.exports = Animation;

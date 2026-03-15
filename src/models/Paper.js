@@ -53,6 +53,11 @@ const Paper = sequelize.define('papers', {
     allowNull: true,
     references: { model: 'chapters', key: 'chapter_id' },
   },
+  chapter_ids: {
+    type: DataTypes.TEXT,
+    allowNull: true,
+    comment: 'JSON array of chapter IDs e.g. [1,2,3] for multiple chapters; single chapter can use chapter_id or chapter_ids: [5]',
+  },
   logo: {
     type: DataTypes.STRING,
     allowNull: true, // Now nullable - will be fetched from user table

@@ -1,4 +1,5 @@
 const Animation = require('../models/Animation');
+const Chapter = require('../models/Chapter');
 
 /**
  * Extract YouTube video ID from various URL formats.
@@ -31,6 +32,7 @@ function toPublic(record) {
     subject_title_id: row.subject_title_id,
     board_id: row.board_id,
     standard_id: row.standard_id,
+    chapter_id: row.chapter_id ?? null,
     created_at: row.created_at,
     updated_at: row.updated_at,
   };
@@ -38,6 +40,7 @@ function toPublic(record) {
   if (row.subject_title) out.subject_title = { subject_title_id: row.subject_title.subject_title_id, title_name: row.subject_title.title_name };
   if (row.board) out.board = { board_id: row.board.board_id, board_name: row.board.board_name };
   if (row.standard) out.standard = { standard_id: row.standard.standard_id, name: row.standard.name };
+  if (row.chapter) out.chapter = { chapter_id: row.chapter.chapter_id, chapter_name: row.chapter.chapter_name, subject_title_id: row.chapter.subject_title_id };
   return out;
 }
 
@@ -46,12 +49,23 @@ const includeAssociations = [
   { association: 'subject_title', attributes: ['subject_title_id', 'title_name'] },
   { association: 'board', attributes: ['board_id', 'board_name'] },
   { association: 'standard', attributes: ['standard_id', 'name'] },
+  { association: 'chapter', attributes: ['chapter_id', 'chapter_name', 'subject_title_id'], required: false },
 ];
 
-// Get all animations – with subject, subject_title, board, standard
+// Get all animations – with subject, subject_title, board, standard, chapter (optional filter by chapter_id)
 exports.getAllAnimations = async (req, res) => {
   try {
+    const { chapter_id } = req.query;
+    const where = {};
+    if (chapter_id != null && chapter_id !== '') {
+      const cid = parseInt(chapter_id, 10);
+      if (isNaN(cid)) {
+        return res.status(400).json({ error: 'chapter_id must be a number' });
+      }
+      where.chapter_id = cid;
+    }
     const list = await Animation.findAll({
+      where,
       include: includeAssociations,
       order: [['animation_id', 'ASC']],
     });
@@ -75,10 +89,10 @@ exports.getAnimationById = async (req, res) => {
   }
 };
 
-// Add animation (admin) – requires subject_id, subject_title_id, board_id, standard_id
+// Add animation (admin) – requires subject_id, subject_title_id, board_id, standard_id; optional chapter_id
 exports.addAnimation = async (req, res) => {
   try {
-    const { title, youtube_url, subject_id, subject_title_id, board_id, standard_id } = req.body;
+    const { title, youtube_url, subject_id, subject_title_id, board_id, standard_id, chapter_id } = req.body;
     if (!youtube_url || typeof youtube_url !== 'string' || !youtube_url.trim()) {
       return res.status(400).json({ error: 'youtube_url is required' });
     }
@@ -89,6 +103,20 @@ exports.addAnimation = async (req, res) => {
     if (!videoId) {
       return res.status(400).json({ error: 'Invalid YouTube URL. Use youtube.com/watch?v=... or youtu.be/...' });
     }
+    let chapterIdVal = null;
+    if (chapter_id != null && chapter_id !== '') {
+      const cid = parseInt(chapter_id, 10);
+      if (isNaN(cid)) {
+        return res.status(400).json({ error: 'chapter_id must be a number' });
+      }
+      const chapter = await Chapter.findByPk(cid);
+      if (!chapter) return res.status(404).json({ error: 'Chapter not found' });
+      const stId = parseInt(subject_title_id, 10);
+      if (chapter.subject_title_id !== stId) {
+        return res.status(400).json({ error: 'Chapter does not belong to the selected subject title' });
+      }
+      chapterIdVal = cid;
+    }
     const animation = await Animation.create({
       title: title ? title.trim() : null,
       youtube_url: youtube_url.trim(),
@@ -97,6 +125,7 @@ exports.addAnimation = async (req, res) => {
       subject_title_id: parseInt(subject_title_id, 10),
       board_id: parseInt(board_id, 10),
       standard_id: parseInt(standard_id, 10),
+      chapter_id: chapterIdVal,
     });
     const withIncludes = await Animation.findByPk(animation.animation_id, { include: includeAssociations });
     res.status(201).json({ message: 'Animation added successfully', animation: toPublic(withIncludes) });
@@ -110,7 +139,7 @@ exports.addAnimation = async (req, res) => {
 exports.updateAnimation = async (req, res) => {
   try {
     const { id } = req.params;
-    const { title, youtube_url, subject_id, subject_title_id, board_id, standard_id } = req.body;
+    const { title, youtube_url, subject_id, subject_title_id, board_id, standard_id, chapter_id } = req.body;
     const animation = await Animation.findByPk(id);
     if (!animation) return res.status(404).json({ message: 'Animation not found' });
     const updates = {};
@@ -119,6 +148,21 @@ exports.updateAnimation = async (req, res) => {
     if (subject_title_id !== undefined) updates.subject_title_id = parseInt(subject_title_id, 10);
     if (board_id !== undefined) updates.board_id = parseInt(board_id, 10);
     if (standard_id !== undefined) updates.standard_id = parseInt(standard_id, 10);
+    if (chapter_id !== undefined) {
+      if (chapter_id == null || chapter_id === '') {
+        updates.chapter_id = null;
+      } else {
+        const cid = parseInt(chapter_id, 10);
+        if (isNaN(cid)) return res.status(400).json({ error: 'chapter_id must be a number' });
+        const chapter = await Chapter.findByPk(cid);
+        if (!chapter) return res.status(404).json({ error: 'Chapter not found' });
+        const stId = animation.subject_title_id;
+        if (chapter.subject_title_id !== stId) {
+          return res.status(400).json({ error: 'Chapter does not belong to the animation\'s subject title' });
+        }
+        updates.chapter_id = cid;
+      }
+    }
     if (youtube_url !== undefined) {
       const url = typeof youtube_url === 'string' ? youtube_url.trim() : '';
       if (!url) return res.status(400).json({ error: 'youtube_url cannot be empty' });

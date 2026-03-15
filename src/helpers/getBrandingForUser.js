@@ -14,7 +14,7 @@ function normalizeWatermarkType(value) {
  * Resolves branding (school name, logo path, address, watermark options) for a user.
  * Uses user profile fields. Logo must be a server-controlled path.
  * @param {number} userId - User ID
- * @returns {Promise<{ schoolName, logoPathOrUrl, address, watermarkOpacity, watermark_type, watermark_text, watermark_image_path_or_url }>}
+ * @returns {Promise<{ schoolName, logoPathOrUrl, address, watermarkOpacity, watermark_type, watermark_text, watermark_image_path_or_url, watermark_text_size, watermark_logo_size, watermark_text_bend }>}
  */
 async function getBrandingForUser(userId) {
   const defaults = {
@@ -25,6 +25,9 @@ async function getBrandingForUser(userId) {
     watermark_type: 'text',
     watermark_text: '',
     watermark_image_path_or_url: null,
+    watermark_text_size: 1.0,
+    watermark_logo_size: 1.0,
+    watermark_text_bend: -35,
   };
   if (!userId) return defaults;
 
@@ -32,6 +35,7 @@ async function getBrandingForUser(userId) {
     attributes: [
       'id', 'school_name', 'logo', 'logo_url', 'worksheet_watermark_opacity',
       'worksheet_watermark_type', 'worksheet_watermark_text',
+      'worksheet_watermark_text_size', 'worksheet_watermark_logo_size', 'worksheet_watermark_text_bend',
       'address', 'school_address_city', 'school_address_state', 'school_address_pincode',
     ],
   });
@@ -46,6 +50,13 @@ async function getBrandingForUser(userId) {
   const customText = user.worksheet_watermark_text != null ? String(user.worksheet_watermark_text).trim().slice(0, 200) : '';
   const watermark_text = customText || schoolName || 'Your School';
   const watermark_image_path_or_url = (watermark_type === 'image' || watermark_type === 'text_and_image') ? logoPathOrUrl : null;
+
+  const textSize = user.worksheet_watermark_text_size;
+  const watermark_text_size = typeof textSize === 'number' && textSize >= 0.5 && textSize <= 2 ? textSize : 1.0;
+  const logoSize = user.worksheet_watermark_logo_size;
+  const watermark_logo_size = typeof logoSize === 'number' && logoSize >= 0.5 && logoSize <= 2 ? logoSize : 1.0;
+  const bend = user.worksheet_watermark_text_bend;
+  const watermark_text_bend = typeof bend === 'number' && bend >= -90 && bend <= 90 ? bend : -35;
 
   const rawAddress = user.address
     ? String(user.address).trim()
@@ -63,6 +74,9 @@ async function getBrandingForUser(userId) {
     watermark_type,
     watermark_text,
     watermark_image_path_or_url,
+    watermark_text_size,
+    watermark_logo_size,
+    watermark_text_bend,
   };
 }
 

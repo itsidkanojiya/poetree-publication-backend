@@ -4,6 +4,8 @@ const Question = require('../models/Question');
 const Paper = require('../models/Paper');
 const Worksheet = require('../models/Worksheet');
 const AnswerSheet = require('../models/AnswerSheet');
+const Animation = require('../models/Animation');
+const sequelize = require('../config/db');
 
 /** GET /api/chapters?subject_title_id=:id - List chapters for a subject title */
 exports.getChaptersBySubjectTitle = async (req, res) => {
@@ -71,23 +73,29 @@ exports.deleteChapter = async (req, res) => {
       return res.status(404).json({ success: false, error: 'Chapter not found' });
     }
 
-    const [questionsCount, papersCount, worksheetsCount, answersheetsCount] = await Promise.all([
+    // Papers can reference chapter via chapter_id (single) or chapter_ids (JSON array)
+    const papersWhere = sequelize.literal(
+      `(chapter_id = ${chapterId} OR (chapter_ids IS NOT NULL AND chapter_ids != '' AND JSON_CONTAINS(chapter_ids, CAST(${chapterId} AS JSON), '$')))`
+    );
+    const [questionsCount, papersCount, worksheetsCount, answersheetsCount, animationsCount] = await Promise.all([
       Question.count({ where: { chapter_id: chapterId } }),
-      Paper.count({ where: { chapter_id: chapterId } }),
+      Paper.count({ where: papersWhere }),
       Worksheet.count({ where: { chapter_id: chapterId } }),
       AnswerSheet.count({ where: { chapter_id: chapterId } }),
+      Animation.count({ where: { chapter_id: chapterId } }),
     ]);
 
-    const inUse = questionsCount > 0 || papersCount > 0 || worksheetsCount > 0 || answersheetsCount > 0;
+    const inUse = questionsCount > 0 || papersCount > 0 || worksheetsCount > 0 || answersheetsCount > 0 || animationsCount > 0;
     if (inUse) {
       return res.status(409).json({
         success: false,
-        error: 'Chapter is in use and cannot be deleted. Remove or reassign it from questions, papers, worksheets, or answer sheets first.',
+        error: 'Chapter is in use and cannot be deleted. Remove or reassign it from questions, papers, worksheets, answer sheets, or animations first.',
         in_use: {
           questions: questionsCount,
           papers: papersCount,
           worksheets: worksheetsCount,
           answersheets: answersheetsCount,
+          animations: animationsCount,
         },
       });
     }

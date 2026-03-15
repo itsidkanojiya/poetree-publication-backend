@@ -82,6 +82,19 @@ async function personalizeWorksheetPdf(canonicalPdfPath, branding) {
     ? branding.watermark_image_path_or_url
     : null;
 
+  const textSizeScale = typeof branding.watermark_text_size === 'number' && branding.watermark_text_size >= 0.5 && branding.watermark_text_size <= 2
+    ? branding.watermark_text_size
+    : 1.0;
+  const logoSizeScale = typeof branding.watermark_logo_size === 'number' && branding.watermark_logo_size >= 0.5 && branding.watermark_logo_size <= 2
+    ? branding.watermark_logo_size
+    : 1.0;
+  const textBendDeg = typeof branding.watermark_text_bend === 'number' && branding.watermark_text_bend >= -90 && branding.watermark_text_bend <= 90
+    ? branding.watermark_text_bend
+    : -35;
+  const effectiveWatermarkImageMaxHeightPt = watermarkImageMaxHeightPt * logoSizeScale;
+  const baseWatermarkFontSize = 42;
+  const effectiveWatermarkFontSize = Math.round(baseWatermarkFontSize * textSizeScale);
+
   const pdfBytes = fs.readFileSync(canonicalPdfPath);
   const pdfDoc = await PDFDocument.load(pdfBytes);
   const helvetica = await pdfDoc.embedFont(StandardFonts.Helvetica);
@@ -108,7 +121,7 @@ async function personalizeWorksheetPdf(canonicalPdfPath, branding) {
   let watermarkImage = null;
   if (watermarkImagePath && (watermarkType === 'image' || watermarkType === 'text_and_image')) {
     try {
-      watermarkImage = await embedImageFromPath(pdfDoc, watermarkImagePath, watermarkImageMaxHeightPt);
+      watermarkImage = await embedImageFromPath(pdfDoc, watermarkImagePath, effectiveWatermarkImageMaxHeightPt);
     } catch (err) {
       console.warn('[worksheetPersonalization] Watermark image embed failed:', err.message);
     }
@@ -203,27 +216,26 @@ async function personalizeWorksheetPdf(canonicalPdfPath, branding) {
 
     // Watermark on every page (none / text / image / text_and_image)
     const displayWatermarkText = watermarkText || schoolName;
-    const watermarkFontSize = 42;
     const centerX = width / 2;
     const centerY = isFirstPage ? headerBottom / 2 : height / 2;
 
     if (watermarkType !== 'none') {
       if ((watermarkType === 'text' || watermarkType === 'text_and_image') && displayWatermarkText) {
-        const approxTextWidth = displayWatermarkText.length * watermarkFontSize * 0.5;
+        const approxTextWidth = displayWatermarkText.length * effectiveWatermarkFontSize * 0.5;
         const wx = centerX - approxTextWidth / 2;
-        const wy = centerY - watermarkFontSize / 2;
+        const wy = centerY - effectiveWatermarkFontSize / 2;
         page.drawText(displayWatermarkText, {
           x: wx,
           y: wy,
-          size: watermarkFontSize,
+          size: effectiveWatermarkFontSize,
           font: helvetica,
           color: rgb(0.75, 0.75, 0.78),
           opacity: watermarkOpacity,
-          rotate: degrees(-35),
+          rotate: degrees(textBendDeg),
         });
       }
       if ((watermarkType === 'image' || watermarkType === 'text_and_image') && watermarkImage) {
-        const wImgDims = watermarkImage.scaleToFit(watermarkImageMaxHeightPt * 2, watermarkImageMaxHeightPt);
+        const wImgDims = watermarkImage.scaleToFit(effectiveWatermarkImageMaxHeightPt * 2, effectiveWatermarkImageMaxHeightPt);
         const offsetY = watermarkType === 'text_and_image' && displayWatermarkText
           ? -wImgDims.height - 20
           : 0;
@@ -231,7 +243,7 @@ async function personalizeWorksheetPdf(canonicalPdfPath, branding) {
         const imgY = centerY - wImgDims.height / 2 + offsetY;
         page.save();
         page.translate(imgX + wImgDims.width / 2, imgY + wImgDims.height / 2);
-        page.rotate(degrees(-35));
+        page.rotate(degrees(textBendDeg));
         page.translate(-(imgX + wImgDims.width / 2), -(imgY + wImgDims.height / 2));
         page.drawImage(watermarkImage, {
           x: imgX,

@@ -17,7 +17,48 @@ Paper.belongsTo(User, {
     as: 'user'
 });
 
-const allowedTypes = ["custom", "default"];
+const allowedTypes = ["custom", "default", "quiz"];
+
+/**
+ * Normalize chapter input: accept chapter_id (single number) or chapter_ids (array of numbers).
+ * Validates each ID exists and belongs to subject_title_id. Returns { chapterId, chapterIdsJson }.
+ * chapterId = first element for backward compat; chapterIdsJson = JSON string for DB.
+ */
+async function normalizePaperChapters(chapter_id, chapter_ids, subject_title_id) {
+    let ids = [];
+    if (chapter_ids != null) {
+        const arr = Array.isArray(chapter_ids) ? chapter_ids : (typeof chapter_ids === 'string' ? (() => { try { return JSON.parse(chapter_ids); } catch { return []; } })() : []);
+        ids = arr.map((x) => parseInt(x, 10)).filter((x) => !isNaN(x));
+    }
+    if (ids.length === 0 && chapter_id != null && chapter_id !== '') {
+        const cid = parseInt(chapter_id, 10);
+        if (!isNaN(cid)) ids = [cid];
+    }
+    if (ids.length === 0) return { chapterId: null, chapterIdsJson: null };
+
+    const stId = subject_title_id != null ? parseInt(subject_title_id, 10) : null;
+    for (const cid of ids) {
+        const chapter = await Chapter.findByPk(cid);
+        if (!chapter) throw new Error('Chapter not found');
+        if (stId != null && chapter.subject_title_id !== stId) throw new Error('Chapter does not belong to the selected subject title');
+    }
+    const unique = [...new Set(ids)];
+    return {
+        chapterId: unique[0] || null,
+        chapterIdsJson: JSON.stringify(unique),
+    };
+}
+
+function parseChapterIds(paper) {
+    const raw = paper.chapter_ids;
+    if (raw == null || raw === '') return [];
+    try {
+        const arr = typeof raw === 'string' ? JSON.parse(raw) : raw;
+        return Array.isArray(arr) ? arr.map((x) => parseInt(x, 10)).filter((x) => !isNaN(x)) : [];
+    } catch {
+        return [];
+    }
+}
 
 exports.addPaper = async (req, res) => {
     try {
@@ -31,6 +72,7 @@ exports.addPaper = async (req, res) => {
             subject, 
             subject_title_id,
             chapter_id,
+            chapter_ids,
             board, 
             paper_title,
             body,
@@ -67,24 +109,23 @@ exports.addPaper = async (req, res) => {
 
         // Validate type
         if (!allowedTypes.includes(type.toLowerCase())) {
-            return res.status(400).json({ success: false, message: "Invalid paper type. Allowed values: 'custom', 'default'." });
+            return res.status(400).json({ success: false, message: "Invalid paper type. Allowed values: 'custom', 'default', 'quiz'." });
         }
 
         let chapterIdVal = null;
-        if (chapter_id != null && chapter_id !== '') {
-            const cid = parseInt(chapter_id, 10);
-            if (isNaN(cid)) {
-                return res.status(400).json({ success: false, message: "chapter_id must be a number" });
-            }
-            const chapter = await Chapter.findByPk(cid);
-            if (!chapter) {
+        let chapterIdsJsonVal = null;
+        try {
+            const normalized = await normalizePaperChapters(chapter_id, chapter_ids, subject_title_id);
+            chapterIdVal = normalized.chapterId;
+            chapterIdsJsonVal = normalized.chapterIdsJson;
+        } catch (e) {
+            if (e.message === 'Chapter not found') {
                 return res.status(404).json({ success: false, message: "Chapter not found" });
             }
-            const stId = subject_title_id ? parseInt(subject_title_id, 10) : null;
-            if (stId != null && chapter.subject_title_id !== stId) {
+            if (e.message && e.message.includes('does not belong')) {
                 return res.status(400).json({ success: false, message: "Chapter does not belong to the selected subject title" });
             }
-            chapterIdVal = cid;
+            return res.status(400).json({ success: false, message: e.message || "Invalid chapter_id or chapter_ids" });
         }
 
         // Fetch user to get school_name, address, and logo
@@ -126,6 +167,7 @@ exports.addPaper = async (req, res) => {
             subject,
             subject_title_id: subject_title_id ? parseInt(subject_title_id) : null,
             chapter_id: chapterIdVal,
+            chapter_ids: chapterIdsJsonVal,
             logo, // From user table
             logo_url: null, // Not used anymore
             board,
@@ -178,12 +220,13 @@ exports.getAllPapers = async (req, res) => {
             
             // Remove user object from response
             const { user: _, ...rest } = paperData;
-            
+            const chapterIdsArr = parseChapterIds(paper);
             return {
                 ...rest,
                 school_name,
                 address,
-                logo
+                logo,
+                chapter_ids: chapterIdsArr,
             };
         });
 
@@ -210,9 +253,9 @@ exports.getPapersByUserId = async (req, res) => {
 
         // If type is provided, validate and add it to the filter
         if (type) {
-            const allowedTypes = ["custom", "default"];
-            if (!allowedTypes.includes(type.toLowerCase())) {
-                return res.status(400).json({ success: false, message: "Invalid paper type. Allowed values: 'custom', 'default'." });
+            const allowedTypesFilter = ["custom", "default", "quiz"];
+            if (!allowedTypesFilter.includes(type.toLowerCase())) {
+                return res.status(400).json({ success: false, message: "Invalid paper type. Allowed values: 'custom', 'default', 'quiz'." });
             }
             whereClause.type = type;
         }
@@ -262,7 +305,8 @@ exports.getPapersByUserId = async (req, res) => {
                 school_name,
                 address,
                 logo,
-                subject_title_name: subjectTitle ? subjectTitle.title_name : null // Add subject title name
+                subject_title_name: subjectTitle ? subjectTitle.title_name : null,
+                chapter_ids: parseChapterIds(paper),
             };
         });
 
@@ -287,6 +331,8 @@ exports.updatePaper = async (req, res) => {
             division, 
             subject, 
             subject_title_id,
+            chapter_id,
+            chapter_ids,
             board, 
             body,
             marks_mcq,
@@ -305,7 +351,7 @@ exports.updatePaper = async (req, res) => {
 
         // Validate type if provided
         if (type && !allowedTypes.includes(type.toLowerCase())) {
-            return res.status(400).json({ success: false, message: "Invalid paper type. Allowed values: 'custom', 'default'." });
+            return res.status(400).json({ success: false, message: "Invalid paper type. Allowed values: 'custom', 'default', 'quiz'." });
         }
 
         // Fetch user to get school_name, address, and logo (if user_id is provided or use existing)
@@ -354,6 +400,30 @@ exports.updatePaper = async (req, res) => {
         if (division !== undefined) updateData.division = division;
         if (subject !== undefined) updateData.subject = subject;
         if (subject_title_id !== undefined) updateData.subject_title_id = subject_title_id ? parseInt(subject_title_id) : null;
+        if (chapter_id !== undefined || chapter_ids !== undefined) {
+            const stId = (subject_title_id != null ? parseInt(subject_title_id, 10) : null) ?? paper.subject_title_id;
+            let existingIds = null;
+            try {
+                if (paper.chapter_ids) existingIds = JSON.parse(paper.chapter_ids);
+            } catch { existingIds = paper.chapter_id != null ? [paper.chapter_id] : []; }
+            try {
+                const normalized = await normalizePaperChapters(
+                    chapter_id !== undefined ? chapter_id : paper.chapter_id,
+                    chapter_ids !== undefined ? chapter_ids : existingIds,
+                    stId
+                );
+                updateData.chapter_id = normalized.chapterId;
+                updateData.chapter_ids = normalized.chapterIdsJson;
+            } catch (e) {
+                if (e.message === 'Chapter not found') {
+                    return res.status(404).json({ success: false, message: 'Chapter not found' });
+                }
+                if (e.message && e.message.includes('does not belong')) {
+                    return res.status(400).json({ success: false, message: "Chapter does not belong to the paper's subject title" });
+                }
+                return res.status(400).json({ success: false, message: e.message || 'Invalid chapter_id or chapter_ids' });
+            }
+        }
         if (board !== undefined) updateData.board = board;
         if (paper_title !== undefined) updateData.paper_title = paper_title;
         if (body !== undefined) updateData.body = body;
@@ -375,7 +445,8 @@ exports.updatePaper = async (req, res) => {
         const baseUrl = `${req.protocol}://${req.get('host')}`;
         const updatedPaper = {
             ...paper.toJSON(),
-            logo: paper.logo && !paper.logo.startsWith('http') ? `${baseUrl}/${paper.logo}` : paper.logo
+            logo: paper.logo && !paper.logo.startsWith('http') ? `${baseUrl}/${paper.logo}` : paper.logo,
+            chapter_ids: parseChapterIds(paper),
         };
 
         return res.status(200).json({ 
@@ -447,8 +518,9 @@ exports.getPaperById = async (req, res) => {
             school_name,
             address,
             logo,
-            subject_title_name: subjectTitle ? subjectTitle.title_name : null, // Add subject title name
-            template_metadata: parsedMetadata // Add parsed template_metadata
+            subject_title_name: subjectTitle ? subjectTitle.title_name : null,
+            template_metadata: parsedMetadata,
+            chapter_ids: parseChapterIds(paper),
         };
 
         return res.status(200).json({ success: true, data: formattedPaper });
@@ -505,6 +577,7 @@ exports.createTemplate = async (req, res) => {
             subject, 
             subject_title_id,
             chapter_id,
+            chapter_ids,
             board, 
             paper_title,
             body,
@@ -525,7 +598,7 @@ exports.createTemplate = async (req, res) => {
 
         // Validate type
         if (!allowedTypes.includes(type.toLowerCase())) {
-            return res.status(400).json({ success: false, message: "Invalid paper type. Allowed values: 'custom', 'default'." });
+            return res.status(400).json({ success: false, message: "Invalid paper type. Allowed values: 'custom', 'default', 'quiz'." });
         }
 
         // Validate template_metadata
@@ -559,19 +632,15 @@ exports.createTemplate = async (req, res) => {
             }
         }
 
-        // Optional chapter_id for template (null allowed)
+        // Optional chapter_id / chapter_ids for template (null allowed)
         let templateChapterId = null;
-        if (chapter_id != null && chapter_id !== '') {
-            const cid = parseInt(chapter_id, 10);
-            if (!isNaN(cid)) {
-                const chapter = await Chapter.findByPk(cid);
-                if (chapter) {
-                    const stId = subject_title_id ? parseInt(subject_title_id, 10) : null;
-                    if (stId == null || chapter.subject_title_id === stId) {
-                        templateChapterId = cid;
-                    }
-                }
-            }
+        let templateChapterIdsJson = null;
+        try {
+            const normalized = await normalizePaperChapters(chapter_id, chapter_ids, subject_title_id);
+            templateChapterId = normalized.chapterId;
+            templateChapterIdsJson = normalized.chapterIdsJson;
+        } catch {
+            // ignore invalid chapter for template; leave null
         }
 
         // Handle logo: prioritize file upload, then URL, then default
@@ -604,6 +673,7 @@ exports.createTemplate = async (req, res) => {
             subject,
             subject_title_id: subject_title_id ? parseInt(subject_title_id) : null,
             chapter_id: templateChapterId,
+            chapter_ids: templateChapterIdsJson,
             logo,
             logo_url: logo_url && logo_url.trim() !== '' ? logo_url.trim() : null,
             board,
@@ -734,7 +804,7 @@ exports.updateTemplate = async (req, res) => {
 
         // Validate type if provided
         if (type && !allowedTypes.includes(type.toLowerCase())) {
-            return res.status(400).json({ success: false, message: "Invalid paper type. Allowed values: 'custom', 'default'." });
+            return res.status(400).json({ success: false, message: "Invalid paper type. Allowed values: 'custom', 'default', 'quiz'." });
         }
 
         // Validate template_metadata if provided
