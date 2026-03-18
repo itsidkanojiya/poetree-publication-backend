@@ -7,6 +7,7 @@ const UserSubject = require("../models/UserSubject");
 const UserSubjectTitle = require("../models/UserSubjectTitle");
 const { sendOTPEmail, sendNewPasswordEmail, sendAccountActivationPendingEmail } = require("../utils/sendOTPEmail");
 const personalizedPdfCache = require("../services/personalizedPdfCache");
+const { syncSubjectRowStatuses, rebuildUserApprovedArrays } = require("../services/subjectTitleSyncService");
 
 const generateOTP = () => Math.floor(100000 + Math.random() * 900000).toString(); // e.g. 6-digit
 
@@ -98,25 +99,63 @@ exports.signup = async (req, res) => {
     });
 
     // Create records in junction tables with status='pending'
-    // Handle subjects array
-    if (subjects && Array.isArray(subjects) && subjects.length > 0) {
-      const subjectRecords = subjects.map(subjectId => ({
-        user_id: newUser.id,
-        subject_id: subjectId,
-        status: 'pending',
-      }));
-      await UserSubject.bulkCreate(subjectRecords);
+    const hasSubjectsArray = Array.isArray(subjects) && subjects.length > 0;
+    const hasSubjectTitlesArray = Array.isArray(subject_titles) && subject_titles.length > 0;
+
+    // Enforce: subject-only requests are not allowed.
+    // Every selected subject must have at least one selected subject title.
+    if (hasSubjectsArray || hasSubjectTitlesArray) {
+      if (!hasSubjectTitlesArray) {
+        return res.status(400).json({ error: "subject_titles are required. Subject-only signup is not allowed." });
+      }
+
+      const subjectIdsFromTitles = [...new Set(subject_titles.map((item) => item.subject_id))];
+
+      if (hasSubjectsArray) {
+        const missingTitleSubjects = subjects.filter((sid) => !subjectIdsFromTitles.includes(sid));
+        if (missingTitleSubjects.length > 0) {
+          return res.status(400).json({
+            error: "Each selected subject must include at least one selected subject title.",
+            missingTitleSubjects,
+          });
+        }
+      }
+    } else if (subject && !subjects) {
+      // Legacy single-subject request must also include a subject_title.
+      if (!subject_title) {
+        return res.status(400).json({ error: "subject_title is required when using legacy subject signup." });
+      }
+    } else {
+      return res.status(400).json({ error: "Please select at least one subject title." });
     }
 
-    // Handle subject_titles array
-    if (subject_titles && Array.isArray(subject_titles) && subject_titles.length > 0) {
-      const subjectTitleRecords = subject_titles.map(item => ({
-        user_id: newUser.id,
-        subject_id: item.subject_id,
-        subject_title_id: item.subject_title_id,
-        status: 'pending',
-      }));
-      await UserSubjectTitle.bulkCreate(subjectTitleRecords);
+    // Handle subjects/subject_titles arrays (new format only).
+    // For legacy single-subject signup, we keep using the backward compatibility blocks below.
+    if (hasSubjectsArray || hasSubjectTitlesArray) {
+      // Handle subjects array (or derive subjects from titles if subjects[] isn't provided)
+      const subjectIdsToCreate = hasSubjectsArray
+        ? subjects
+        : [...new Set(subject_titles.map((item) => item.subject_id))];
+
+      if (subjectIdsToCreate.length > 0) {
+        const subjectRecords = subjectIdsToCreate.map((subjectId) => ({
+          user_id: newUser.id,
+          subject_id: subjectId,
+          status: 'pending',
+        }));
+        await UserSubject.bulkCreate(subjectRecords);
+      }
+
+      // Handle subject_titles array
+      if (hasSubjectTitlesArray) {
+        const subjectTitleRecords = subject_titles.map((item) => ({
+          user_id: newUser.id,
+          subject_id: item.subject_id,
+          subject_title_id: item.subject_title_id,
+          status: 'pending',
+        }));
+        await UserSubjectTitle.bulkCreate(subjectTitleRecords);
+      }
     }
 
     // Backward compatibility: If old format is used, create single records
@@ -880,6 +919,28 @@ exports.updateMySelections = async (req, res) => {
       subject_titles, // Array of objects: [{subject_id: 1, subject_title_id: 5}]
     } = req.body;
 
+    const affectedSubjectIds = new Set();
+
+    const hasSubjectsArray = Array.isArray(subjects) && subjects.length > 0;
+    const hasSubjectTitlesArray = Array.isArray(subject_titles) && subject_titles.length > 0;
+
+    // Enforce: subject-only requests are not allowed.
+    // A request must always include at least one subject title.
+    if (!hasSubjectTitlesArray) {
+      return res.status(400).json({ error: "subject_titles are required. Subject-only requests are not allowed." });
+    }
+
+    if (hasSubjectsArray) {
+      const subjectIdsFromTitles = [...new Set(subject_titles.map((item) => item.subject_id))];
+      const missingTitleSubjects = subjects.filter((sid) => !subjectIdsFromTitles.includes(sid));
+      if (missingTitleSubjects.length > 0) {
+        return res.status(400).json({
+          error: "Each selected subject must include at least one selected subject title.",
+          missingTitleSubjects,
+        });
+      }
+    }
+
     // Add new subjects (only if they don't already exist)
     if (subjects && Array.isArray(subjects) && subjects.length > 0) {
       for (const subjectId of subjects) {
@@ -892,6 +953,14 @@ exports.updateMySelections = async (req, res) => {
             subject_id: subjectId,
             status: 'pending',
           });
+          affectedSubjectIds.add(subjectId);
+        } else if (existing.status === "rejected") {
+          await existing.update({
+            status: "pending",
+            approved_by: null,
+            approved_at: null,
+          });
+          affectedSubjectIds.add(subjectId);
         }
       }
     }
@@ -909,8 +978,26 @@ exports.updateMySelections = async (req, res) => {
             subject_title_id: item.subject_title_id,
             status: 'pending',
           });
+          affectedSubjectIds.add(item.subject_id);
+        } else if (existing.status === "rejected") {
+          // Re-requesting an admin-rejected title should move it back to pending.
+          await existing.update({
+            status: "pending",
+            approved_by: null,
+            approved_at: null,
+          });
+          affectedSubjectIds.add(existing.subject_id);
         }
       }
+    }
+
+    // Keep `user_subjects.status` consistent after flipping rejected -> pending.
+    // Also rebuild the cached JSON arrays on the user record.
+    for (const subjectId of affectedSubjectIds) {
+      await syncSubjectRowStatuses(userId, subjectId, { approvedBy: null });
+    }
+    if (affectedSubjectIds.size > 0) {
+      await rebuildUserApprovedArrays(userId);
     }
 
     res.status(200).json({
@@ -941,8 +1028,17 @@ exports.removeMyApprovedSelections = async (req, res) => {
       });
     }
 
-    // Only delete rows that belong to this user and are approved
+    const subjectIdsToSync = new Set();
+    const deletedSubjectTitleIds = new Set();
+
     if (toDeleteSubjectIds.length > 0) {
+      const subjectRows = await UserSubject.findAll({
+        where: { user_id: userId, id: { [Op.in]: toDeleteSubjectIds } },
+        attributes: ["subject_id"],
+      });
+      subjectRows.forEach((r) => subjectIdsToSync.add(r.subject_id));
+
+      // Keep old behavior for subject rows (only approved subject rows are revocable here)
       await UserSubject.destroy({
         where: {
           id: { [Op.in]: toDeleteSubjectIds },
@@ -951,34 +1047,126 @@ exports.removeMyApprovedSelections = async (req, res) => {
         },
       });
     }
+
     if (toDeleteTitleIds.length > 0) {
+      // Prefer treating ids as row ids first, fallback to master subject_title_id.
+      let titleRows = await UserSubjectTitle.findAll({
+        where: { user_id: userId, id: { [Op.in]: toDeleteTitleIds } },
+        attributes: ["subject_title_id", "subject_id"],
+      });
+
+      if (titleRows.length === 0) {
+        titleRows = await UserSubjectTitle.findAll({
+          where: { user_id: userId, subject_title_id: { [Op.in]: toDeleteTitleIds } },
+          attributes: ["subject_title_id", "subject_id"],
+        });
+      }
+
+      titleRows.forEach((r) => {
+        subjectIdsToSync.add(r.subject_id);
+        deletedSubjectTitleIds.add(r.subject_title_id);
+      });
+
+      // Key change: delete the title rows completely, so it can't re-appear under pending.
       await UserSubjectTitle.destroy({
         where: {
-          id: { [Op.in]: toDeleteTitleIds },
           user_id: userId,
-          status: "approved",
+          subject_title_id: { [Op.in]: [...deletedSubjectTitleIds] },
         },
       });
     }
 
-    // Rebuild user.subject and user.subject_title from remaining approved rows
-    const [remainingSubjects, remainingTitles] = await Promise.all([
-      UserSubject.findAll({ where: { user_id: userId, status: "approved" }, attributes: ["subject_id"] }),
-      UserSubjectTitle.findAll({ where: { user_id: userId, status: "approved" }, attributes: ["subject_title_id"] }),
-    ]);
-    const user = await User.findByPk(userId);
-    if (user) {
-      user.subject = remainingSubjects.map((s) => s.subject_id);
-      user.subject_title = remainingTitles.map((st) => st.subject_title_id);
-      await user.save();
+    const now = new Date();
+    for (const subjectId of subjectIdsToSync) {
+      await syncSubjectRowStatuses(userId, subjectId, { approvedBy: null, now });
     }
+
+    const updatedUser = await rebuildUserApprovedArrays(userId);
 
     res.status(200).json({
       message: "Approved selection(s) removed successfully.",
-      removed: { user_subject_ids: toDeleteSubjectIds, user_subject_title_ids: toDeleteTitleIds },
+      removed: {
+        user_subject_ids: toDeleteSubjectIds,
+        user_subject_title_ids: toDeleteTitleIds,
+        deleted_subject_title_ids: [...deletedSubjectTitleIds],
+      },
+      user: {
+        id: updatedUser?.id || userId,
+        subject: updatedUser?.subject || [],
+        subject_title: updatedUser?.subject_title || [],
+      },
     });
   } catch (err) {
     console.error("Error removing approved selections:", err);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// Remove Subject Titles entirely (delete pending + approved rows, and keep behavior simple by deleting all statuses)
+// This fixes the case where a removed/ cancelled approved title still appears under pending.
+//
+// Endpoint: POST /api/auth/my-selections/remove-subject-title
+// Body: { user_subject_title_ids: number[] } (row ids from user_subject_titles, or fallback to master subject_title_id)
+exports.removeMySubjectTitles = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { user_subject_title_ids } = req.body || {};
+
+    const ids = Array.isArray(user_subject_title_ids)
+      ? user_subject_title_ids.map((id) => parseInt(id, 10)).filter((id) => !isNaN(id))
+      : [];
+
+    if (ids.length === 0) {
+      return res.status(400).json({ error: "user_subject_title_ids must be a non-empty array." });
+    }
+
+    // Prefer treating ids as row ids first.
+    let rows = await UserSubjectTitle.findAll({
+      where: { user_id: userId, id: { [Op.in]: ids } },
+      attributes: ["id", "subject_title_id", "subject_id"],
+    });
+
+    // Fallback: treat ids as master subject_title_id.
+    if (rows.length === 0) {
+      rows = await UserSubjectTitle.findAll({
+        where: { user_id: userId, subject_title_id: { [Op.in]: ids } },
+        attributes: ["id", "subject_title_id", "subject_id"],
+      });
+    }
+
+    if (rows.length === 0) {
+      return res.status(404).json({ error: "No subject title requests found for given ids." });
+    }
+
+    const subjectTitleIds = [...new Set(rows.map((r) => r.subject_title_id))];
+    const subjectIds = [...new Set(rows.map((r) => r.subject_id))];
+
+    // Delete the title rows completely so it disappears from pending/approved/rejected lists.
+    await UserSubjectTitle.destroy({
+      where: {
+        user_id: userId,
+        subject_title_id: { [Op.in]: subjectTitleIds },
+      },
+    });
+
+    // Sync parent subject statuses based on remaining titles.
+    for (const sid of subjectIds) {
+      await syncSubjectRowStatuses(userId, sid, { approvedBy: null });
+    }
+
+    const updatedUser = await rebuildUserApprovedArrays(userId);
+
+    return res.status(200).json({
+      message: "Subject title(s) removed successfully.",
+      removed: { requested_ids: ids, deleted_subject_title_ids: subjectTitleIds },
+      user: {
+        id: updatedUser?.id || userId,
+        subject: updatedUser?.subject || [],
+        subject_title: updatedUser?.subject_title || [],
+      },
+    });
+  } catch (err) {
+    console.error("Error removing subject titles:", err);
     res.status(500).json({ error: err.message });
   }
 };

@@ -6,6 +6,7 @@ const { Subject, SubjectTitle } = require("../models/Subjects");
 const UserSubject = require("../models/UserSubject");
 const UserSubjectTitle = require("../models/UserSubjectTitle");
 const { sendActivationStatusEmail } = require("../utils/sendOTPEmail.js");
+const { syncSubjectRowStatuses } = require("../services/subjectTitleSyncService");
 
 
 exports.getAllUser = async (req, res) => {
@@ -273,6 +274,27 @@ exports.getUserSelections = async (req, res) => {
   }
 };
 
+async function rebuildUserApprovedArrays(userId) {
+  const user = await User.findByPk(userId);
+  if (!user) return null;
+
+  const [approvedSubjects, approvedSubjectTitles] = await Promise.all([
+    UserSubject.findAll({
+      where: { user_id: userId, status: "approved" },
+      attributes: ["subject_id"],
+    }),
+    UserSubjectTitle.findAll({
+      where: { user_id: userId, status: "approved" },
+      attributes: ["subject_title_id"],
+    }),
+  ]);
+
+  user.subject = approvedSubjects.map((s) => s.subject_id);
+  user.subject_title = approvedSubjectTitles.map((st) => st.subject_title_id);
+  await user.save();
+  return user;
+}
+
 // Approve user selections and activate user
 // Supports two formats:
 // 1) subject_ids / subject_title_ids = row IDs (user_subjects.id, user_subject_titles.id)
@@ -304,12 +326,14 @@ exports.approveUserSelections = async (req, res) => {
         where: { user_id: id, id: { [Op.in]: subject_ids } },
         attributes: ["id"],
       });
-      subjectRowIdsToApprove = byRowId.length > 0
-        ? byRowId.map((r) => r.id)
-        : (await UserSubject.findAll({
-            where: { user_id: id, subject_id: { [Op.in]: subject_ids } },
-            attributes: ["id"],
-          })).map((r) => r.id);
+      // Strict mode: subject_ids are row ids only (no fallback to master ids)
+      subjectRowIdsToApprove = byRowId.map((r) => r.id);
+      if (subjectRowIdsToApprove.length === 0) {
+        return res.status(400).json({
+          error:
+            "No matching subject request rows found for given subject_ids. If you want to approve by master subject_id, send approve_by_subject_ids instead.",
+        });
+      }
     }
     if (approve_by_subject_ids.length > 0) {
       const bySubjectId = await UserSubject.findAll({
@@ -360,12 +384,14 @@ exports.approveUserSelections = async (req, res) => {
         where: { user_id: id, id: { [Op.in]: subject_title_ids } },
         attributes: ["id"],
       });
-      subjectTitleRowIdsToApprove = byRowId.length > 0
-        ? byRowId.map((r) => r.id)
-        : (await UserSubjectTitle.findAll({
-            where: { user_id: id, subject_title_id: { [Op.in]: subject_title_ids } },
-            attributes: ["id"],
-          })).map((r) => r.id);
+      // Strict mode: subject_title_ids are row ids only (no fallback to master ids)
+      subjectTitleRowIdsToApprove = byRowId.map((r) => r.id);
+      if (subjectTitleRowIdsToApprove.length === 0) {
+        return res.status(400).json({
+          error:
+            "No matching subject title request rows found for given subject_title_ids. If you want to approve by master subject_title_id, send approve_by_subject_title_ids instead.",
+        });
+      }
     }
     if (approve_by_subject_title_ids.length > 0) {
       const byTitleId = await UserSubjectTitle.findAll({
@@ -373,6 +399,43 @@ exports.approveUserSelections = async (req, res) => {
         attributes: ["id"],
       });
       subjectTitleRowIdsToApprove = [...new Set([...subjectTitleRowIdsToApprove, ...byTitleId.map((r) => r.id)])];
+    }
+
+    // Collect subject_ids that may have their parent status changed.
+    // We sync only these subject_ids after we update title rows statuses.
+    // Track which subject_ids were explicitly approved (subject row approved) so sync does not downgrade them to pending.
+    const affectedSubjectIds = new Set();
+    const subjectIdsApprovedExplicitly = new Set();
+    if (subjectRowIdsToApprove.length > 0) {
+      const subjectRows = await UserSubject.findAll({
+        where: { user_id: id, id: { [Op.in]: subjectRowIdsToApprove } },
+        attributes: ["subject_id"],
+      });
+      subjectRows.forEach((r) => {
+        affectedSubjectIds.add(r.subject_id);
+        subjectIdsApprovedExplicitly.add(r.subject_id);
+      });
+    }
+    if (subjectTitleRowIdsToApprove.length > 0) {
+      const titleRows = await UserSubjectTitle.findAll({
+        where: { user_id: id, id: { [Op.in]: subjectTitleRowIdsToApprove } },
+        attributes: ["subject_id"],
+      });
+      titleRows.forEach((r) => affectedSubjectIds.add(r.subject_id));
+    }
+    if (reject_others) {
+      // When reject_others=true, other pending rows for the user may change too.
+      const pendingSubjectIds = await UserSubject.findAll({
+        where: { user_id: id, status: "pending" },
+        attributes: ["subject_id"],
+      });
+      pendingSubjectIds.forEach((r) => affectedSubjectIds.add(r.subject_id));
+
+      const pendingTitleSubjectIds = await UserSubjectTitle.findAll({
+        where: { user_id: id, status: "pending" },
+        attributes: ["subject_id"],
+      });
+      pendingTitleSubjectIds.forEach((r) => affectedSubjectIds.add(r.subject_id));
     }
 
     // Approve selected subject titles (by user_subject_titles.id)
@@ -409,27 +472,27 @@ exports.approveUserSelections = async (req, res) => {
       }
     }
 
-    // Get all approved selections
-    const approvedSubjects = await UserSubject.findAll({
-      where: { user_id: id, status: "approved" },
-      attributes: ["subject_id"],
-    });
+    // Sync parent subject statuses derived from current title statuses.
+    // Do not downgrade to pending when admin explicitly approved the subject (approve subject only, no titles yet).
+    for (const subjectId of affectedSubjectIds) {
+      await syncSubjectRowStatuses(id, subjectId, {
+        approvedBy: adminId,
+        now,
+        subjectApprovedExplicitly: subjectIdsApprovedExplicitly.has(subjectId),
+      });
+    }
 
-    const approvedSubjectTitles = await UserSubjectTitle.findAll({
-      where: { user_id: id, status: "approved" },
-      attributes: ["subject_title_id"],
-    });
+    // Rebuild user approved arrays from approved rows
+    const updatedUser = await rebuildUserApprovedArrays(id);
+    if (!updatedUser) return res.status(404).json({ error: "User not found" });
 
-    // Update users table with approved values (JSON arrays)
-    const subjectArray = approvedSubjects.map(s => s.subject_id);
-    const subjectTitleArray = approvedSubjectTitles.map(st => st.subject_title_id);
+    const subjectArray = Array.isArray(updatedUser.subject) ? updatedUser.subject : [];
+    const subjectTitleArray = Array.isArray(updatedUser.subject_title) ? updatedUser.subject_title : [];
 
-    user.subject = subjectArray;
-    user.subject_title = subjectTitleArray;
-    user.is_verified = 1; // Activate user
+    updatedUser.is_verified = 1; // Activate user
 
     try {
-      await user.save();
+      await updatedUser.save();
     } catch (saveErr) {
       const msg = saveErr.message || '';
       if (msg.includes("Incorrect integer value") && (msg.includes("subject") || msg.includes("'[]'"))) {
@@ -451,17 +514,58 @@ exports.approveUserSelections = async (req, res) => {
     res.status(200).json({
       message: "User selections approved and user activated successfully",
       user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
+        id: updatedUser.id,
+        name: updatedUser.name,
+        email: updatedUser.email,
         subject: subjectArray,
         subject_title: subjectTitleArray,
-        is_verified: user.is_verified,
+        is_verified: updatedUser.is_verified,
       },
     });
   } catch (err) {
     console.error("Error approving user selections:", err);
     res.status(500).json({ error: err.message });
+  }
+};
+
+// Reject a single subject or subject-title request row.
+// Route: POST /api/admin/subject-requests/:requestId/reject?type=subject|subject_title
+exports.rejectSubjectRequest = async (req, res) => {
+  try {
+    const requestId = parseInt(req.params.requestId, 10);
+    if (isNaN(requestId)) return res.status(400).json({ error: "Invalid request id" });
+
+    const typeRaw = (req.query.type || "").toString().trim().toLowerCase();
+    const type = typeRaw === "subject_title" ? "subject_title" : typeRaw === "subject" ? "subject" : null;
+    if (!type) {
+      return res.status(400).json({ error: "Missing/invalid query param: type=subject|subject_title" });
+    }
+
+    const adminId = req.user?.id || req.user?.user_id;
+    const now = new Date();
+
+    if (type === "subject") {
+      const row = await UserSubject.findByPk(requestId);
+      if (!row) return res.status(404).json({ error: "Subject request not found" });
+
+      await row.update({ status: "rejected", approved_by: adminId, approved_at: now });
+      await syncSubjectRowStatuses(row.user_id, row.subject_id, { approvedBy: adminId, now });
+      await rebuildUserApprovedArrays(row.user_id);
+
+      return res.status(200).json({ message: "Subject request rejected", request: row });
+    }
+
+    const row = await UserSubjectTitle.findByPk(requestId);
+    if (!row) return res.status(404).json({ error: "Subject title request not found" });
+
+    await row.update({ status: "rejected", approved_by: adminId, approved_at: now });
+    await syncSubjectRowStatuses(row.user_id, row.subject_id, { approvedBy: adminId, now });
+    await rebuildUserApprovedArrays(row.user_id);
+
+    return res.status(200).json({ message: "Subject title request rejected", request: row });
+  } catch (err) {
+    console.error("Error rejecting subject request:", err);
+    return res.status(500).json({ error: err.message });
   }
 };
 
@@ -473,6 +577,7 @@ exports.removeUserApprovedSelections = async (req, res) => {
       return res.status(400).json({ error: "Invalid user id" });
     }
 
+    const adminId = req.user?.id || req.user?.user_id;
     const user = await User.findByPk(userId);
     if (!user) {
       return res.status(404).json({ error: "User not found" });
@@ -492,6 +597,22 @@ exports.removeUserApprovedSelections = async (req, res) => {
       });
     }
 
+    const subjectIdsToSync = new Set();
+    if (toDeleteSubjectIds.length > 0) {
+      const subjectRows = await UserSubject.findAll({
+        where: { user_id: userId, id: { [Op.in]: toDeleteSubjectIds } },
+        attributes: ["subject_id"],
+      });
+      subjectRows.forEach((r) => subjectIdsToSync.add(r.subject_id));
+    }
+    if (toDeleteTitleIds.length > 0) {
+      const titleRows = await UserSubjectTitle.findAll({
+        where: { user_id: userId, id: { [Op.in]: toDeleteTitleIds } },
+        attributes: ["subject_id"],
+      });
+      titleRows.forEach((r) => subjectIdsToSync.add(r.subject_id));
+    }
+
     if (toDeleteSubjectIds.length > 0) {
       await UserSubject.destroy({
         where: {
@@ -509,6 +630,12 @@ exports.removeUserApprovedSelections = async (req, res) => {
           status: "approved",
         },
       });
+    }
+
+    // Sync subject statuses from the remaining title rows.
+    const now = new Date();
+    for (const subjectId of subjectIdsToSync) {
+      await syncSubjectRowStatuses(userId, subjectId, { approvedBy: adminId, now });
     }
 
     const [remainingSubjects, remainingTitles] = await Promise.all([

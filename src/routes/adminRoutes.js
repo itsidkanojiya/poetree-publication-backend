@@ -11,6 +11,7 @@ const {
   getPendingUsers,
   getUserSelections,
   approveUserSelections,
+  rejectSubjectRequest,
   removeUserApprovedSelections,
   getAllSubjectRequests,
 } = require("../controllers/adminController");
@@ -29,6 +30,8 @@ router.get("/subject-requests", authMiddleware.verifyAdmin, getAllSubjectRequest
 router.get("/user/:id/selections", authMiddleware.verifyAdmin, getUserSelections);
 router.put("/activate/:id", authMiddleware.verifyAdmin, activateUser);
 router.post("/approve-selections/:id", authMiddleware.verifyAdmin, approveUserSelections);
+// Reject a single pending/approved request row by id. Query param: ?type=subject|subject_title
+router.post("/subject-requests/:requestId/reject", authMiddleware.verifyAdmin, rejectSubjectRequest);
 router.post("/users/:userId/selections/remove", authMiddleware.verifyAdmin, removeUserApprovedSelections);
 router.put("/deactivate/:id", authMiddleware.verifyAdmin, deActivateUser);
 router.delete("/user/delete/:id", authMiddleware.verifyAdmin, deleteUser);
