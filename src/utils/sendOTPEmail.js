@@ -1,34 +1,42 @@
 const nodemailer = require("nodemailer");
 
-// SMTP: GoDaddy (or any provider) when SMTP_HOST is set; otherwise Brevo
-// GoDaddy: SMTP_HOST, SMTP_PORT (465), SMTP_USER, SMTP_PASS, SMTP_FROM — SSL on 465
-const useGenericSmtp = process.env.SMTP_HOST;
-const port = useGenericSmtp
-  ? Number(process.env.SMTP_PORT) || 465
-  : Number(process.env.BREVO_PORT) || 587;
-const transporter = nodemailer.createTransport(
-  useGenericSmtp
-    ? {
-        host: process.env.SMTP_HOST,
-        port,
-        secure: port === 465, // SSL for 465 (GoDaddy)
-        auth: {
-          user: process.env.SMTP_USER,
-          pass: process.env.SMTP_PASS,
-        },
-      }
-    : {
-        host: process.env.BREVO_HOST || "smtp-relay.brevo.com",
-        port,
-        secure: false,
-        auth: {
-          user: process.env.BREVO_USER,
-          pass: process.env.BREVO_PASS,
-        },
-      }
-);
+// Build transporter at send-time so latest process.env values are always used.
+function createTransporter() {
+  const useGenericSmtp = !!process.env.SMTP_HOST;
+  const port = useGenericSmtp
+    ? Number(process.env.SMTP_PORT) || 465
+    : Number(process.env.BREVO_PORT) || 587;
+
+  return nodemailer.createTransport(
+    useGenericSmtp
+      ? {
+          host: process.env.SMTP_HOST,
+          port,
+          secure: port === 465, // SSL for 465 (GoDaddy)
+          auth: {
+            user: process.env.SMTP_USER,
+            pass: process.env.SMTP_PASS,
+          },
+        }
+      : {
+          host: process.env.BREVO_HOST || "smtp-relay.brevo.com",
+          port,
+          secure: false,
+          auth: {
+            user: process.env.BREVO_USER,
+            pass: process.env.BREVO_PASS,
+          },
+        }
+  );
+}
+
+function sendMail(mailOptions) {
+  const transporter = createTransporter();
+  return transporter.sendMail(mailOptions);
+}
 
 function getFrom() {
+  const useGenericSmtp = !!process.env.SMTP_HOST;
   if (useGenericSmtp && process.env.SMTP_FROM) return process.env.SMTP_FROM;
   return process.env.BREVO_FROM || process.env.BREVO_EMAIL || process.env.SMTP_USER || "";
 }
@@ -53,7 +61,7 @@ const sendOTPEmail = async (to, otp) => {
     `,
   };
 
-  return transporter.sendMail(mailOptions);
+  return sendMail(mailOptions);
 };
 
 const sendNewPasswordEmail = async (to, newPassword) => {
@@ -76,7 +84,7 @@ const sendNewPasswordEmail = async (to, newPassword) => {
     `,
   };
 
-  return transporter.sendMail(mailOptions);
+  return sendMail(mailOptions);
 };
 
 const sendAccountActivationPendingEmail = async (to, name) => {
@@ -99,7 +107,7 @@ const sendAccountActivationPendingEmail = async (to, name) => {
     `,
   };
 
-  return transporter.sendMail(mailOptions);
+  return sendMail(mailOptions);
 };
 
 const sendActivationStatusEmail = async (to, name, isActivated) => {
@@ -125,7 +133,7 @@ const sendActivationStatusEmail = async (to, name, isActivated) => {
     `,
   };
 
-  return transporter.sendMail(mailOptions);
+  return sendMail(mailOptions);
 };
 
 module.exports = {

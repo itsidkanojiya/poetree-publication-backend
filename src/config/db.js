@@ -40,6 +40,31 @@ const getSequelize = () => {
     return sequelize;
 };
 
+/**
+ * Ensures questions.difficulty exists (idempotent). Avoids manual SQL when the
+ * Sequelize migration was not run on this database.
+ */
+async function ensureQuestionDifficultyColumn(db) {
+    const [rows] = await db.query(
+        `
+        SELECT COUNT(*) AS cnt
+        FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'questions'
+          AND COLUMN_NAME = 'difficulty'
+        `,
+        { raw: true }
+    );
+    const cnt = Number(rows?.[0]?.cnt ?? 0);
+    if (cnt > 0) return;
+
+    await db.query(`
+        ALTER TABLE questions
+        ADD COLUMN difficulty ENUM('easy', 'medium', 'hard') NOT NULL DEFAULT 'medium'
+    `);
+    console.log('✅ Added column questions.difficulty (auto-migration).');
+}
+
 // Test the connection - only connect when explicitly called, not at module load
 // This prevents database connection during Netlify build
 const connectDB = async () => {
@@ -51,6 +76,14 @@ const connectDB = async () => {
         // Sync models (optional: only if you want to sync)
         // Only sync in runtime, not during build
         if (process.env.NETLIFY !== 'true' && process.env.NODE_ENV !== 'build') {
+            try {
+                await ensureQuestionDifficultyColumn(db);
+            } catch (e) {
+                console.error(
+                    '❌ Could not ensure questions.difficulty column:',
+                    e.message
+                );
+            }
             await db.sync();
             console.log('✅ Models synced successfully.');
         }

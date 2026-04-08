@@ -26,6 +26,9 @@ router.post('/add', upload.single('logo'), paperController.addPaper);
 // Route to update/edit a paper
 router.put('/:id', upload.single('logo'), paperController.updatePaper);
 
+// Smart paper proposal (authenticated users)
+router.post('/smart-propose', verifyToken, paperController.smartPropose);
+
 // Route to create template (admin only)
 router.post('/templates/create', authMiddleware.verifyAdmin, upload.single('logo'), paperController.createTemplate);
 

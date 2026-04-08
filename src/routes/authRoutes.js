@@ -17,6 +17,7 @@ const {
   updateMySelections,
   removeMyApprovedSelections,
   removeMySubjectTitles,
+  sendTestEmail,
 } = require('../controllers/authController');
 const verifyTokenMiddleware = require('../middlewares/verifyToken');
 const upload = require('../middlewares/upload');
@@ -42,5 +43,6 @@ router.get('/my-selections/approved', verifyTokenMiddleware, getMyApprovedSelect
 router.put('/my-selections', verifyTokenMiddleware, updateMySelections);
 router.post('/my-selections/remove', verifyTokenMiddleware, removeMyApprovedSelections);
 router.post('/my-selections/remove-subject-title', verifyTokenMiddleware, removeMySubjectTitles);
+router.post('/test-email', sendTestEmail);
 
 module.exports = router;

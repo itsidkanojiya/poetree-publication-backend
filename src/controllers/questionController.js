@@ -4,6 +4,18 @@ const fs = require("fs");
 const path = require("path");
 const { Op } = require("sequelize");
 const { Subject, SubjectTitle, Boards } = require("../models/Subjects");
+const {
+  normalizeQuestionType,
+  SECTION_WEIGHT_KEYS,
+} = require("../services/smartPaperPropose");
+
+const ALLOWED_DIFFICULTY = ["easy", "medium", "hard"];
+
+function normalizeDifficultyValue(d) {
+  if (d == null || d === "") return "medium";
+  const x = String(d).toLowerCase();
+  return ALLOWED_DIFFICULTY.includes(x) ? x : "medium";
+}
 Question.belongsTo(Subject, { foreignKey: "subject_id", as: "subject" });
 Question.belongsTo(SubjectTitle, {
   foreignKey: "subject_title_id",
@@ -79,7 +91,9 @@ exports.addQuestion = async (req, res) => {
       answer,
       solution,
       type,
-      options,marks
+      options,
+      marks,
+      difficulty,
     } = req.body;
 
         // Validate required fields (answer is optional)
@@ -87,6 +101,19 @@ exports.addQuestion = async (req, res) => {
             return res.status(400).json({
               error: "Missing required fields",
               required: ["subject_title_id", "subject_id", "standard", "board_id", "question", "type", "marks"]
+            });
+        }
+        if (difficulty === undefined || difficulty === null || String(difficulty).trim() === "") {
+            return res.status(400).json({
+              error: "difficulty is required",
+              allowed: ALLOWED_DIFFICULTY,
+            });
+        }
+        const difficultyNorm = String(difficulty).toLowerCase();
+        if (!ALLOWED_DIFFICULTY.includes(difficultyNorm)) {
+            return res.status(400).json({
+              error: "Invalid difficulty; use easy, medium, or hard",
+              allowed: ALLOWED_DIFFICULTY,
             });
         }
         if (!chapter_id) {
@@ -153,8 +180,10 @@ exports.addQuestion = async (req, res) => {
             question,
             answer: answerToStore,
             solution,
-            type,marks,
-            options: formattedOptions, 
+            type,
+            marks,
+            difficulty: difficultyNorm,
+            options: formattedOptions,
             image_url,  // Save full image path
         });
 
@@ -181,6 +210,16 @@ exports.editQuestion = async (req, res) => {
     if (body.standard !== undefined && body.standard !== '') updates.standard = parseInt(body.standard, 10);
     if (body.board_id !== undefined && body.board_id !== '') updates.board_id = parseInt(body.board_id, 10);
     if (body.marks !== undefined && body.marks !== '') updates.marks = parseInt(body.marks, 10);
+    if (body.difficulty !== undefined && body.difficulty !== "") {
+      const d = String(body.difficulty).toLowerCase();
+      if (!ALLOWED_DIFFICULTY.includes(d)) {
+        return res.status(400).json({
+          error: "Invalid difficulty; use easy, medium, or hard",
+          allowed: ALLOWED_DIFFICULTY,
+        });
+      }
+      updates.difficulty = d;
+    }
     if (body.chapter_id !== undefined) {
       if (body.chapter_id === null || body.chapter_id === '') {
         updates.chapter_id = null;
@@ -308,6 +347,7 @@ exports.getAllQuestions = async (req, res) => {
       type, 
       marks,
       chapter_id,
+      difficulty,
     } = req.query;
 
     // Build query dynamically with support for arrays
@@ -397,6 +437,19 @@ exports.getAllQuestions = async (req, res) => {
       }
     }
 
+    // Filter by difficulty (easy, medium, hard — comma-separated)
+    if (difficulty) {
+      const diffs = Array.isArray(difficulty)
+        ? difficulty
+        : difficulty.split(',').map((d) => d.trim().toLowerCase()).filter((d) => d);
+      const valid = diffs.filter((d) => ALLOWED_DIFFICULTY.includes(d));
+      if (valid.length === 1) {
+        query.difficulty = valid[0];
+      } else if (valid.length > 1) {
+        query.difficulty = { [Op.in]: valid };
+      }
+    }
+
     console.log('[getAllQuestions] Query filters:', JSON.stringify(query, null, 2));
 
     const questions = await Question.findAll({
@@ -410,6 +463,7 @@ exports.getAllQuestions = async (req, res) => {
         "answer",
         "solution",
         "type",
+        "difficulty",
         "options",
         "image_url",
         "marks",
@@ -480,6 +534,7 @@ exports.getAllQuestions = async (req, res) => {
         answer: answerOut,
         solution: questionData.solution,
         type: questionData.type,
+        difficulty: normalizeDifficultyValue(questionData.difficulty),
         options: parsedOptions,
         marks: questionData.marks, // Already an integer, no need to parse
         board_id: questionData.board_id,
@@ -514,6 +569,60 @@ exports.getAllQuestions = async (req, res) => {
       success: false,
       error: err.message 
     });
+  }
+};
+
+exports.getQuestionStats = async (req, res) => {
+  try {
+    const { subject_title_id, board_id, standard } = req.query;
+    const st = subject_title_id != null ? parseInt(subject_title_id, 10) : NaN;
+    const bd = board_id != null ? parseInt(board_id, 10) : NaN;
+    const std = standard != null ? parseInt(standard, 10) : NaN;
+    if (isNaN(st) || isNaN(bd) || isNaN(std)) {
+      return res.status(400).json({
+        success: false,
+        error: "subject_title_id, board_id, and standard are required as numbers",
+      });
+    }
+
+    const baseWhere = { subject_title_id: st, board_id: bd, standard: std };
+
+    const rows = await Question.findAll({
+      attributes: ["difficulty", "type", "chapter_id"],
+      where: baseWhere,
+      raw: true,
+    });
+
+    const by_difficulty = { easy: 0, medium: 0, hard: 0 };
+    const by_type = Object.fromEntries(SECTION_WEIGHT_KEYS.map((k) => [k, 0]));
+    const chapterCount = {};
+
+    for (const r of rows) {
+      const d = normalizeDifficultyValue(r.difficulty);
+      if (by_difficulty[d] !== undefined) by_difficulty[d]++;
+      const ct = normalizeQuestionType(r.type);
+      if (ct && Object.prototype.hasOwnProperty.call(by_type, ct)) {
+        by_type[ct]++;
+      }
+      const ch = r.chapter_id;
+      if (ch != null) {
+        chapterCount[ch] = (chapterCount[ch] || 0) + 1;
+      }
+    }
+
+    const by_chapter = Object.keys(chapterCount)
+      .map((id) => ({ chapter_id: parseInt(id, 10), count: chapterCount[id] }))
+      .sort((a, b) => a.chapter_id - b.chapter_id);
+
+    return res.status(200).json({
+      success: true,
+      by_difficulty,
+      by_type,
+      by_chapter,
+    });
+  } catch (err) {
+    console.error("[getQuestionStats]", err);
+    res.status(500).json({ success: false, error: err.message });
   }
 };
 

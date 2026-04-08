@@ -22,15 +22,18 @@ Use this document to update the frontend so it works correctly with the current 
 **Endpoint:** `POST /api/auth/signup`
 
 **Backend rules (enforced):**
+
 - `subject_titles` must be a **non-empty array**. Subject-only signup is rejected.
 - If `subjects` is sent, every `subject_id` in `subjects` must appear in at least one item in `subject_titles` (each subject must have at least one title).
 
 **Frontend changes:**
+
 - Do **not** allow the user to submit signup with only subjects and zero subject titles.
 - Validate before submit: at least one subject title per selected subject.
 - Send both `subjects` and `subject_titles` in the payload.
 
 **Valid body example:**
+
 ```json
 {
   "name": "...",
@@ -53,6 +56,7 @@ Use this document to update the frontend so it works correctly with the current 
 ```
 
 **Errors you may get (400):**
+
 - `"subject_titles are required. Subject-only signup is not allowed."`
 - `"Each selected subject must include at least one selected subject title."` (with optional `missingTitleSubjects` array)
 - `"Please select at least one subject title."`
@@ -64,14 +68,17 @@ Use this document to update the frontend so it works correctly with the current 
 **Endpoint:** `PUT /api/auth/my-selections`
 
 **Backend rules (enforced):**
+
 - `subject_titles` must be a **non-empty array**. Subject-only requests are rejected.
 - If `subjects` is sent, every `subject_id` in `subjects` must have at least one entry in `subject_titles`.
 
 **Frontend changes:**
+
 - Do **not** allow submitting a request with only subjects and no subject titles.
 - Validate: at least one subject title per subject before calling the API.
 
 **Valid body example:**
+
 ```json
 {
   "subjects": [1, 2],
@@ -83,6 +90,7 @@ Use this document to update the frontend so it works correctly with the current 
 ```
 
 **Errors you may get (400):**
+
 - `"subject_titles are required. Subject-only requests are not allowed."`
 - `"Each selected subject must include at least one selected subject title."` (with optional `missingTitleSubjects`)
 
@@ -99,6 +107,7 @@ Two options; both remove the title **completely** (it will not reappear under Pe
 **Auth:** Bearer token (logged-in user).
 
 **Body:**
+
 ```json
 {
   "user_subject_title_ids": [22, 23]
@@ -108,6 +117,7 @@ Two options; both remove the title **completely** (it will not reappear under Pe
 - `user_subject_title_ids`: array of **row ids** (`user_subject_titles.id`) **or** master `subject_title_id`s. Backend tries row id first, then master id.
 
 **Success (200):**
+
 ```json
 {
   "message": "Subject title(s) removed successfully.",
@@ -130,6 +140,7 @@ After success, refresh pending and approved lists (e.g. `GET /api/auth/my-select
 **Endpoint:** `POST /api/auth/my-selections/remove`
 
 **Body:**
+
 ```json
 {
   "user_subject_title_ids": [22]
@@ -139,8 +150,9 @@ After success, refresh pending and approved lists (e.g. `GET /api/auth/my-select
 The backend now **deletes** those subject title rows entirely (all statuses), so the title disappears from Pending and Approved. You can keep using this endpoint; just ensure you pass the **row id** (`user_subject_titles.id`) from the approved (or pending) item.
 
 **Frontend change for “Remove” / “Cancel” button:**
-- For **subject title** remove/cancel: call either  
-  - `POST /api/auth/my-selections/remove-subject-title` with `{ "user_subject_title_ids": [rowId] }`, or  
+
+- For **subject title** remove/cancel: call either
+  - `POST /api/auth/my-selections/remove-subject-title` with `{ "user_subject_title_ids": [rowId] }`, or
   - `POST /api/auth/my-selections/remove` with `{ "user_subject_title_ids": [rowId] }`.
 - Use the **row id** (`id` from `user_subject_titles`) that you get from:
   - `GET /api/auth/my-selections/approved` (e.g. `approved_selections.subject_titles[].id` or inside `grouped`),
@@ -155,6 +167,7 @@ The backend now **deletes** those subject title rows entirely (all statuses), so
 **Endpoint:** `POST /api/admin/approve-selections/:userId`
 
 **Important:** The backend treats:
+
 - `subject_ids` → **row ids only** (`user_subjects.id`). If you send master subject IDs here, backend returns **400**.
 - `subject_title_ids` → **row ids only** (`user_subject_titles.id`). If you send master subject title IDs here, backend returns **400**.
 
@@ -164,12 +177,14 @@ To approve by **master IDs** (subject_id and subject_title_id from the catalog),
 - `approve_by_subject_title_ids` – array of **master** `subject_title_id`
 
 **Frontend changes:**
+
 - When the admin selects which **subjects/titles to approve** by their **catalog names/IDs** (master IDs), send:
   - `approve_by_subject_ids`: [ master subject_id, ... ]
   - `approve_by_subject_title_ids`: [ master subject_title_id, ... ]
 - Do **not** send master IDs in `subject_ids` or `subject_title_ids` (those are for row ids only).
 
 **Example (approve by master IDs):**
+
 ```json
 {
   "approve_by_subject_ids": [1, 2],
@@ -179,6 +194,7 @@ To approve by **master IDs** (subject_id and subject_title_id from the catalog),
 ```
 
 **Example (approve by row IDs – if your UI uses junction row ids):**
+
 ```json
 {
   "subject_ids": [10, 11],
@@ -188,6 +204,7 @@ To approve by **master IDs** (subject_id and subject_title_id from the catalog),
 ```
 
 **Errors you may get (400):**
+
 - `"No matching subject request rows found for given subject_ids. If you want to approve by master subject_id, send approve_by_subject_ids instead."`
 - `"No matching subject title request rows found for given subject_title_ids. If you want to approve by master subject_title_id, send approve_by_subject_title_ids instead."`
 
@@ -200,17 +217,20 @@ To approve by **master IDs** (subject_id and subject_title_id from the catalog),
 **Auth:** Admin Bearer token.
 
 **URL:**
+
 - `:requestId` = **row id** (`user_subjects.id` for a subject row, or `user_subject_titles.id` for a subject title row).
 - Query: `type=subject` or `type=subject_title`.
 
 **No body required.**
 
 **Example – reject a subject title request:**
+
 ```
 POST /api/admin/subject-requests/42/reject?type=subject_title
 ```
 
 **Example – reject a subject request:**
+
 ```
 POST /api/admin/subject-requests/15/reject?type=subject
 ```
@@ -218,8 +238,9 @@ POST /api/admin/subject-requests/15/reject?type=subject
 **Success (200):**  
 JSON with `message` and `request` (the updated row).
 
-**Errors:**  
-- 400: invalid or missing `type` (must be `subject` or `subject_title`).  
+**Errors:**
+
+- 400: invalid or missing `type` (must be `subject` or `subject_title`).
 - 404: request row not found.
 
 **Frontend:**  
@@ -229,12 +250,12 @@ Use the row `id` from the subject-requests list (e.g. from `GET /api/admin/subje
 
 ## 3. Where to Get IDs
 
-| Use case | Where to get the id |
-|----------|----------------------|
-| Remove/cancel **subject title** (user) | `GET /api/auth/my-selections/approved` → `approved_selections.subject_titles[].id` or from `grouped`; or `GET /api/auth/my-selections` → `selections.subject_titles.approved[].id`. For pending cancel, use pending list if the API returns `id` for each pending title. |
-| Approve by **master** subject/title (admin) | From your dropdowns/catalog: `subject_id`, `subject_title_id`. Send them in `approve_by_subject_ids` and `approve_by_subject_title_ids`. |
-| Approve by **row** id (admin) | `GET /api/admin/user/:id/selections` → `selections.subjects.pending[].id`, `selections.subject_titles.pending[].id`. Send in `subject_ids`, `subject_title_ids`. |
-| Reject a request (admin) | Same row `id` from the subject-requests or user selections response. Use in URL: `/api/admin/subject-requests/:requestId/reject?type=subject` or `type=subject_title`. |
+| Use case                                    | Where to get the id                                                                                                                                                                                                                                                      |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Remove/cancel **subject title** (user)      | `GET /api/auth/my-selections/approved` → `approved_selections.subject_titles[].id` or from `grouped`; or `GET /api/auth/my-selections` → `selections.subject_titles.approved[].id`. For pending cancel, use pending list if the API returns `id` for each pending title. |
+| Approve by **master** subject/title (admin) | From your dropdowns/catalog: `subject_id`, `subject_title_id`. Send them in `approve_by_subject_ids` and `approve_by_subject_title_ids`.                                                                                                                                 |
+| Approve by **row** id (admin)               | `GET /api/admin/user/:id/selections` → `selections.subjects.pending[].id`, `selections.subject_titles.pending[].id`. Send in `subject_ids`, `subject_title_ids`.                                                                                                         |
+| Reject a request (admin)                    | Same row `id` from the subject-requests or user selections response. Use in URL: `/api/admin/subject-requests/:requestId/reject?type=subject` or `type=subject_title`.                                                                                                   |
 
 ---
 
@@ -242,8 +263,8 @@ Use the row `id` from the subject-requests list (e.g. from `GET /api/admin/subje
 
 - [ ] **Signup:** Require at least one subject title; validate “at least one title per subject” before submit. Do not send subject-only.
 - [ ] **Subject Requests (user):** Same validation for “Create new request”: at least one subject title per subject; do not send subject-only.
-- [ ] **Remove/Cancel subject title:**  
-  - Call `POST /api/auth/my-selections/remove-subject-title` with `{ "user_subject_title_ids": [ rowId ] }`, **or** keep using `POST /api/auth/my-selections/remove` with `user_subject_title_ids` (row ids).  
+- [ ] **Remove/Cancel subject title:**
+  - Call `POST /api/auth/my-selections/remove-subject-title` with `{ "user_subject_title_ids": [ rowId ] }`, **or** keep using `POST /api/auth/my-selections/remove` with `user_subject_title_ids` (row ids).
   - After success, refresh pending and approved lists so the removed title disappears.
 - [ ] **Pending list:** If the user can cancel **pending** subject titles, ensure the pending API response includes row `id` for each subject title and use the same remove endpoint(s) above.
 - [ ] **Admin approve:** When approving by catalog/master IDs, send `approve_by_subject_ids` and `approve_by_subject_title_ids`. Do not send master IDs in `subject_ids` or `subject_title_ids`.
@@ -253,19 +274,19 @@ Use the row `id` from the subject-requests list (e.g. from `GET /api/admin/subje
 
 ## 5. Quick API Reference
 
-| Method | Endpoint | Purpose |
-|--------|----------|---------|
-| GET | `/api/auth/my-selections` | All selections (pending, approved, rejected) |
-| GET | `/api/auth/my-selections/pending` | Pending only |
-| GET | `/api/auth/my-selections/approved` | Approved only (with grouped view) |
-| PUT | `/api/auth/my-selections` | Add/update selections (requires `subject_titles` non-empty) |
-| POST | `/api/auth/my-selections/remove` | Remove approved (and now: subject title rows deleted entirely) |
-| POST | `/api/auth/my-selections/remove-subject-title` | Remove subject title(s) by row or master id (deletes row) |
-| GET | `/api/admin/pending-users` | Pending users with selections |
-| GET | `/api/admin/user/:id/selections` | User’s selections (pending/approved/rejected) |
-| GET | `/api/admin/subject-requests` | All subject requests grouped |
-| POST | `/api/admin/approve-selections/:id` | Approve (use `approve_by_subject_ids` / `approve_by_subject_title_ids` for master IDs) |
-| POST | `/api/admin/subject-requests/:requestId/reject?type=subject\|subject_title` | Reject one request row |
+| Method | Endpoint                                                                    | Purpose                                                                                |
+| ------ | --------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| GET    | `/api/auth/my-selections`                                                   | All selections (pending, approved, rejected)                                           |
+| GET    | `/api/auth/my-selections/pending`                                           | Pending only                                                                           |
+| GET    | `/api/auth/my-selections/approved`                                          | Approved only (with grouped view)                                                      |
+| PUT    | `/api/auth/my-selections`                                                   | Add/update selections (requires `subject_titles` non-empty)                            |
+| POST   | `/api/auth/my-selections/remove`                                            | Remove approved (and now: subject title rows deleted entirely)                         |
+| POST   | `/api/auth/my-selections/remove-subject-title`                              | Remove subject title(s) by row or master id (deletes row)                              |
+| GET    | `/api/admin/pending-users`                                                  | Pending users with selections                                                          |
+| GET    | `/api/admin/user/:id/selections`                                            | User’s selections (pending/approved/rejected)                                          |
+| GET    | `/api/admin/subject-requests`                                               | All subject requests grouped                                                           |
+| POST   | `/api/admin/approve-selections/:id`                                         | Approve (use `approve_by_subject_ids` / `approve_by_subject_title_ids` for master IDs) |
+| POST   | `/api/admin/subject-requests/:requestId/reject?type=subject\|subject_title` | Reject one request row                                                                 |
 
 Base URL: your API base (e.g. `https://your-api.com` or relative `/api/...`). All auth endpoints need Bearer token; admin endpoints need admin token.
 

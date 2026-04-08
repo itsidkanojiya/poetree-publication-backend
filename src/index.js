@@ -75,20 +75,21 @@ app.get('*', (req, res, next) => {
 // Only start server if not in build environment
 // This prevents server from starting during Netlify build
 if (process.env.NETLIFY !== 'true' && process.env.NODE_ENV !== 'build') {
-    // Initialize database connection when server starts
     const sequelize = require('./config/db');
-    
-    // Connect to database on server startup
-    if (sequelize.connectDB) {
-        sequelize.connectDB();
-    }
-
     const PORT = process.env.PORT || 4000;
-    const server = app.listen(PORT, () => {
-        console.log(`Server is running on http://localhost:${PORT}`);
+
+    (async () => {
+        if (sequelize.connectDB) {
+            await sequelize.connectDB();
+        }
+        const server = app.listen(PORT, () => {
+            console.log(`Server is running on http://localhost:${PORT}`);
+        });
+        server.setTimeout(300000); // 5 minutes
+    })().catch((err) => {
+        console.error('Failed to start server:', err);
+        process.exit(1);
     });
-    // Allow more time for file uploads (default is 2 min)
-    server.setTimeout(300000); // 5 minutes
 }
 
 module.exports = app;

@@ -1,5 +1,5 @@
- const express = require('express');
-const rateLimit = require('express-rate-limit');
+const express = require('express');
+const { rateLimit, ipKeyGenerator } = require('express-rate-limit');
 const { addWorkSheet, getAllWorkSheets, deleteWorkSheet, getPersonalizedPdf } = require('../controllers/worksheetController');
 const router = express.Router();
 const upload = require('../middlewares/upload');
@@ -12,7 +12,9 @@ const personalizedPdfLimiter = rateLimit({
   standardHeaders: true,
   keyGenerator: (req) => {
     const userId = req.user?.id ?? req.user?.user_id;
-    return userId ? `user:${userId}` : req.ip || 'anonymous';
+    if (userId) return `user:${userId}`;
+    const ip = req.ip || '';
+    return ip ? ipKeyGenerator(ip) : 'anonymous';
   },
 });
 

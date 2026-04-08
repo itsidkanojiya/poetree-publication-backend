@@ -45,6 +45,11 @@ const Question = sequelize.define('questions', {
     type: DataTypes.STRING(50),
     allowNull: true,
   },
+  difficulty: {
+    type: DataTypes.ENUM('easy', 'medium', 'hard'),
+    allowNull: false,
+    defaultValue: 'medium',
+  },
   options: {
     type: DataTypes.TEXT,
     allowNull: true,

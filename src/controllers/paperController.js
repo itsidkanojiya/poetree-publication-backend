@@ -1,7 +1,17 @@
 const Paper = require('../models/Paper'); // Adjust path if needed
 const User = require('../models/User');
 const Chapter = require('../models/Chapter');
+const Question = require('../models/Question');
 const { SubjectTitle } = require('../models/Subjects');
+const {
+  buildProposal,
+  buildTotals,
+  buildSuggestions,
+  normalizeDifficulty,
+  validateSectionWeights,
+  SECTION_WEIGHT_KEYS,
+  canonicalToDbType,
+} = require('../services/smartPaperPropose');
 const Header = require('../models/Header');
 const { Op } = require('sequelize');
 const path = require("path");
@@ -1014,6 +1024,226 @@ exports.cloneTemplate = async (req, res) => {
         return res.status(201).json({ success: true, message: "Template cloned successfully", data: formattedPaper });
     } catch (error) {
         return res.status(500).json({ success: false, message: "Error cloning template", error: error.message });
+    }
+};
+
+/**
+ * POST /api/papers/smart-propose
+ * Balances section (type), chapter, and difficulty by marks. Auth: Bearer token.
+ * by_difficulty.actual_percent is share of total paper marks (marks-based).
+ */
+exports.smartPropose = async (req, res) => {
+    try {
+        const body = req.body || {};
+        const subject_title_id = parseInt(body.subject_title_id, 10);
+        const board_id = parseInt(body.board_id, 10);
+        const standard = parseInt(body.standard, 10);
+        const total_marks = parseInt(body.total_marks, 10);
+
+        if (isNaN(subject_title_id) || isNaN(board_id) || isNaN(standard)) {
+            return res.status(400).json({
+                success: false,
+                error: 'subject_title_id, board_id, and standard must be numbers',
+            });
+        }
+        if (isNaN(total_marks) || total_marks < 1) {
+            return res.status(400).json({
+                success: false,
+                error: 'total_marks must be a positive integer',
+            });
+        }
+
+        const { chapter_weights, difficulty_weights, section_weights, exclude_question_ids } = body;
+
+        if (!chapter_weights || !Array.isArray(chapter_weights) || chapter_weights.length === 0) {
+            return res.status(400).json({ success: false, error: 'chapter_weights must be a non-empty array' });
+        }
+        if (!difficulty_weights || typeof difficulty_weights !== 'object') {
+            return res.status(400).json({ success: false, error: 'difficulty_weights is required' });
+        }
+        if (!section_weights || typeof section_weights !== 'object') {
+            return res.status(400).json({ success: false, error: 'section_weights is required' });
+        }
+
+        const swValidation = validateSectionWeights(section_weights);
+        if (!swValidation.ok) {
+            return res.status(400).json({
+                success: false,
+                error: swValidation.errors[0] || 'Invalid section_weights',
+                errors: swValidation.errors,
+            });
+        }
+
+        const sectionWeightsNorm = {};
+        for (const k of SECTION_WEIGHT_KEYS) {
+            sectionWeightsNorm[k] = Number(section_weights[k]) || 0;
+        }
+
+        for (const k of ['easy', 'medium', 'hard']) {
+            if (difficulty_weights[k] === undefined || difficulty_weights[k] === null) {
+                return res.status(400).json({
+                    success: false,
+                    error: `difficulty_weights.${k} is required`,
+                });
+            }
+        }
+        const dwSum = ['easy', 'medium', 'hard'].reduce(
+            (s, k) => s + (Number(difficulty_weights[k]) || 0),
+            0
+        );
+        if (Math.abs(dwSum - 100) > 0.001) {
+            return res.status(400).json({
+                success: false,
+                error: 'difficulty_weights must sum to 100',
+                actual_sum: dwSum,
+            });
+        }
+
+        const difficultyWeightsNorm = {
+            easy: Number(difficulty_weights.easy) || 0,
+            medium: Number(difficulty_weights.medium) || 0,
+            hard: Number(difficulty_weights.hard) || 0,
+        };
+
+        let cw = chapter_weights.map((c) => ({
+            chapter_id: parseInt(c.chapter_id, 10),
+            percent: Number(c.percent),
+        }));
+        if (cw.some((c) => isNaN(c.chapter_id) || isNaN(c.percent))) {
+            return res.status(400).json({
+                success: false,
+                error: 'Each chapter_weights item needs numeric chapter_id and percent',
+            });
+        }
+
+        const warnings = [];
+        const cwSum = cw.reduce((s, c) => s + c.percent, 0);
+        if (Math.abs(cwSum - 100) > 0.001) {
+            warnings.push(`chapter_weights sum was ${cwSum}; normalized to 100.`);
+            cw = cw.map((c) => ({ ...c, percent: (c.percent / cwSum) * 100 }));
+        }
+
+        const chapterIds = [...new Set(cw.map((c) => c.chapter_id))];
+        const chapters = await Chapter.findAll({
+            where: {
+                chapter_id: { [Op.in]: chapterIds },
+                subject_title_id,
+            },
+        });
+        if (chapters.length !== chapterIds.length) {
+            return res.status(400).json({
+                success: false,
+                error: 'One or more chapter_id values are invalid for this subject_title_id',
+            });
+        }
+
+        const exclude = new Set(
+            Array.isArray(exclude_question_ids)
+                ? exclude_question_ids.map((x) => parseInt(x, 10)).filter((x) => !isNaN(x))
+                : []
+        );
+
+        const positiveCanonical = SECTION_WEIGHT_KEYS.filter((k) => (sectionWeightsNorm[k] || 0) > 0);
+        const dbTypes = [...new Set(positiveCanonical.map((c) => canonicalToDbType(c)))];
+        if (dbTypes.length === 0) {
+            return res.status(400).json({
+                success: false,
+                error: 'At least one section weight must be greater than 0',
+            });
+        }
+
+        const wherePool = {
+            subject_title_id,
+            board_id,
+            standard,
+            type: { [Op.in]: dbTypes },
+        };
+        if (exclude.size) {
+            wherePool.question_id = { [Op.notIn]: [...exclude] };
+        }
+
+        const poolRows = await Question.findAll({
+            where: wherePool,
+            attributes: ['question_id', 'type', 'marks', 'chapter_id', 'difficulty'],
+            raw: true,
+        });
+
+        if (poolRows.length === 0) {
+            return res.status(404).json({
+                success: false,
+                error: 'No questions in pool for the given filters',
+            });
+        }
+
+        const pool = poolRows.map((q) => ({
+            ...q,
+            marks: parseInt(q.marks, 10) || 0,
+        }));
+
+        const chapterIdSet = new Set(cw.map((c) => c.chapter_id));
+        const poolFiltered = pool.filter(
+            (q) =>
+                q.chapter_id != null &&
+                chapterIdSet.has(Number(q.chapter_id)) &&
+                q.marks > 0
+        );
+
+        if (poolFiltered.length === 0) {
+            return res.status(404).json({
+                success: false,
+                error:
+                    'No questions in pool for the given filters (check chapter_ids and that questions have positive marks)',
+            });
+        }
+
+        const proposal = buildProposal({
+            pool: poolFiltered,
+            total_marks,
+            section_weights: sectionWeightsNorm,
+            chapter_weights: cw,
+            difficulty_weights: difficultyWeightsNorm,
+            warnings,
+        });
+
+        const selected = proposal.selected;
+        const questions = selected.map((q, i) => ({
+            question_id: q.question_id,
+            type: q.type,
+            marks: q.marks,
+            chapter_id: q.chapter_id,
+            difficulty: normalizeDifficulty(q.difficulty),
+            order: i + 1,
+        }));
+
+        const totals = buildTotals({
+            section_weights: sectionWeightsNorm,
+            chapter_weights: cw,
+            difficulty_weights: difficultyWeightsNorm,
+            selected,
+        });
+
+        const suggestions = buildSuggestions(warnings, cw, poolFiltered);
+
+        return res.status(200).json({
+            success: selected.length > 0,
+            questions,
+            totals,
+            warnings,
+            suggestions,
+            meta: {
+                balancing:
+                    'Marks are used for section, chapter, and difficulty targets (by_difficulty.actual_percent is % of total paper marks).',
+                section_weights:
+                    'All eight keys required: mcq, blank, true_false, onetwo, short, long, passage, match (sum 100). DB stores truefalse; totals use true_false.',
+            },
+        });
+    } catch (error) {
+        console.error('smartPropose:', error);
+        return res.status(500).json({
+            success: false,
+            message: 'Error building smart proposal',
+            error: error.message,
+        });
     }
 };
 

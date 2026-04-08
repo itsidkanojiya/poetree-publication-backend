@@ -5,7 +5,7 @@ const { Op } = require("sequelize");
 const { Subject, SubjectTitle } = require("../models/Subjects");
 const UserSubject = require("../models/UserSubject");
 const UserSubjectTitle = require("../models/UserSubjectTitle");
-const { sendOTPEmail, sendNewPasswordEmail, sendAccountActivationPendingEmail } = require("../utils/sendOTPEmail");
+const { sendOTPEmail, sendNewPasswordEmail, sendAccountActivationPendingEmail, sendActivationStatusEmail } = require("../utils/sendOTPEmail");
 const personalizedPdfCache = require("../services/personalizedPdfCache");
 const { syncSubjectRowStatuses, rebuildUserApprovedArrays } = require("../services/subjectTitleSyncService");
 
@@ -1468,5 +1468,43 @@ exports.getWorksheetPreview = async (req, res) => {
   } catch (err) {
     console.error("Error getting worksheet preview:", err);
     res.status(500).json({ error: "Internal server error", details: err.message });
+  }
+};
+
+/**
+ * Send a test email to verify SMTP configuration.
+ * Endpoint: POST /api/auth/test-email
+ * Public: no JWT required
+ * Body:
+ * {
+ *   "to": "someone@example.com",
+ *   "name": "Someone",            // optional, default "User"
+ *   "isActivated": true           // optional, default true
+ * }
+ */
+exports.sendTestEmail = async (req, res) => {
+  try {
+    const { to, name = "User", isActivated = true } = req.body || {};
+    if (!to || typeof to !== "string") {
+      return res.status(400).json({ error: "Field 'to' is required and must be a valid email string." });
+    }
+
+    await sendActivationStatusEmail(to.trim(), String(name), Boolean(isActivated));
+
+    return res.status(200).json({
+      success: true,
+      message: "Test email sent successfully",
+      data: {
+        to: to.trim(),
+        template: Boolean(isActivated) ? "activation" : "deactivation",
+      },
+    });
+  } catch (err) {
+    console.error("Error sending test email:", err);
+    return res.status(500).json({
+      success: false,
+      error: "Failed to send test email",
+      details: err.message,
+    });
   }
 };
