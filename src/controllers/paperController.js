@@ -1053,7 +1053,7 @@ exports.smartPropose = async (req, res) => {
             });
         }
 
-        const { chapter_weights, difficulty_weights, section_weights, exclude_question_ids } = body;
+        const { chapter_weights, difficulty_weights, section_weights, section_question_counts, exclude_question_ids } = body;
 
         if (!chapter_weights || !Array.isArray(chapter_weights) || chapter_weights.length === 0) {
             return res.status(400).json({ success: false, error: 'chapter_weights must be a non-empty array' });
@@ -1061,22 +1061,68 @@ exports.smartPropose = async (req, res) => {
         if (!difficulty_weights || typeof difficulty_weights !== 'object') {
             return res.status(400).json({ success: false, error: 'difficulty_weights is required' });
         }
-        if (!section_weights || typeof section_weights !== 'object') {
-            return res.status(400).json({ success: false, error: 'section_weights is required' });
-        }
+        const hasSectionCounts =
+            section_question_counts && typeof section_question_counts === 'object' && !Array.isArray(section_question_counts);
+        const hasSectionWeights =
+            section_weights && typeof section_weights === 'object' && !Array.isArray(section_weights);
 
-        const swValidation = validateSectionWeights(section_weights);
-        if (!swValidation.ok) {
+        if (!hasSectionCounts && !hasSectionWeights) {
             return res.status(400).json({
                 success: false,
-                error: swValidation.errors[0] || 'Invalid section_weights',
-                errors: swValidation.errors,
+                error: 'Either section_question_counts or section_weights is required',
             });
         }
 
-        const sectionWeightsNorm = {};
-        for (const k of SECTION_WEIGHT_KEYS) {
-            sectionWeightsNorm[k] = Number(section_weights[k]) || 0;
+        let sectionWeightsNorm = {};
+        if (hasSectionCounts) {
+            const countErrors = [];
+            const extra = Object.keys(section_question_counts).filter((k) => !SECTION_WEIGHT_KEYS.includes(k));
+            if (extra.length) {
+                countErrors.push(`Unknown section_question_counts keys: ${extra.join(', ')}`);
+            }
+
+            let totalCount = 0;
+            for (const k of SECTION_WEIGHT_KEYS) {
+                if (section_question_counts[k] == null) {
+                    countErrors.push(`Missing section_question_counts.${k}`);
+                    continue;
+                }
+                const v = Number(section_question_counts[k]);
+                if (!Number.isFinite(v) || !Number.isInteger(v) || v < 0) {
+                    countErrors.push(`Invalid section_question_counts.${k}: must be an integer >= 0`);
+                    continue;
+                }
+                totalCount += v;
+            }
+
+            if (totalCount < 1) {
+                countErrors.push('section_question_counts must sum to at least 1');
+            }
+
+            if (countErrors.length) {
+                return res.status(400).json({
+                    success: false,
+                    error: countErrors[0] || 'Invalid section_question_counts',
+                    errors: countErrors,
+                });
+            }
+
+            for (const k of SECTION_WEIGHT_KEYS) {
+                sectionWeightsNorm[k] = (Number(section_question_counts[k]) / totalCount) * 100;
+            }
+        } else {
+            const swValidation = validateSectionWeights(section_weights);
+            if (!swValidation.ok) {
+                return res.status(400).json({
+                    success: false,
+                    error: swValidation.errors[0] || 'Invalid section_weights',
+                    errors: swValidation.errors,
+                });
+            }
+
+            for (const k of SECTION_WEIGHT_KEYS) {
+                sectionWeightsNorm[k] = Number(section_weights[k]) || 0;
+            }
         }
 
         for (const k of ['easy', 'medium', 'hard']) {
