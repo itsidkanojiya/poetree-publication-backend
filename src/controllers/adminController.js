@@ -7,6 +7,7 @@ const UserSubject = require("../models/UserSubject");
 const UserSubjectTitle = require("../models/UserSubjectTitle");
 const { sendActivationStatusEmail } = require("../utils/sendOTPEmail.js");
 const { syncSubjectRowStatuses } = require("../services/subjectTitleSyncService");
+const sequelize = require("../config/db");
 
 
 exports.getAllUser = async (req, res) => {
@@ -733,18 +734,33 @@ exports.deActivateUser = async (req, res) => {
 };
 
 exports.deleteUser = async (req, res) => {
+  const t = await sequelize.transaction();
   try {
     const { id } = req.params; // Get user ID from request params
 
-    const user = await User.findByPk(id); // Find user by primary key
+    const user = await User.findByPk(id, { transaction: t }); // Find user by primary key
     if (!user) {
+      await t.rollback();
       return res.status(404).json({ error: "User not found" });
     }
 
-    await user.destroy(); // Delete the user
+    // Remove dependent rows first to satisfy foreign key constraints.
+    // These tables reference the user via user_id and approved_by.
+    await UserSubjectTitle.destroy({
+      where: { [Op.or]: [{ user_id: id }, { approved_by: id }] },
+      transaction: t,
+    });
+    await UserSubject.destroy({
+      where: { [Op.or]: [{ user_id: id }, { approved_by: id }] },
+      transaction: t,
+    });
 
+    await user.destroy({ transaction: t }); // Delete the user
+
+    await t.commit();
     res.status(200).json({ message: "User deleted successfully" });
   } catch (err) {
+    await t.rollback();
     res.status(500).json({ error: err.message });
   }
 };
