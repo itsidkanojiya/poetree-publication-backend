@@ -3,6 +3,7 @@ const {
   addQuestion,
   editQuestion,
   deleteQuestion,
+  bulkDeleteQuestions,
   getAllQuestions,
   getQuestionStats,
   questionAnalysis,
@@ -16,6 +17,7 @@ const router = express.Router();
 router.post("/add", authMiddleware.verifyAdmin, upload.single("image"), addQuestion);
 router.put("/edit/:id", authMiddleware.verifyAdmin, upload.single("image"), editQuestion);
 router.delete("/delete/:id", authMiddleware.verifyAdmin, deleteQuestion);
+router.post("/bulk-delete", authMiddleware.verifyAdmin, bulkDeleteQuestions);
 router.get("/", getAllQuestions);
 router.get("/stats", verifyToken, getQuestionStats);
 router.get("/analysis", questionAnalysis);

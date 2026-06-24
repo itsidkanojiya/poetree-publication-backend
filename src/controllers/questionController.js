@@ -337,6 +337,51 @@ exports.deleteQuestion = async (req, res) => {
   }
 };
 
+exports.bulkDeleteQuestions = async (req, res) => {
+  try {
+    const { ids } = req.body;
+
+    // Validate non-empty array of ids
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res
+        .status(400)
+        .json({ error: "ids must be a non-empty array" });
+    }
+
+    // Fetch the rows to delete
+    const questions = await Question.findAll({
+      where: { question_id: { [Op.in]: ids } },
+    });
+
+    // Delete each image file (reuses cleanup logic from deleteQuestion)
+    for (const question of questions) {
+      if (question.image_url) {
+        // Get the absolute path of the 'uploads' folder at the project root
+        const rootDir = path.resolve(__dirname, "..", ".."); // Move up TWO levels from src
+        const imagePath = path.join(rootDir, question.image_url);
+
+        // Check if the file exists before deleting
+        if (fs.existsSync(imagePath)) {
+          fs.unlinkSync(imagePath);
+          console.log(`✅ Deleted file: ${imagePath}`);
+        } else {
+          console.log(`❌ File not found: ${imagePath}`);
+        }
+      }
+    }
+
+    // Bulk-remove the rows from the database
+    const deletedCount = await Question.destroy({
+      where: { question_id: { [Op.in]: ids } },
+    });
+
+    res.status(200).json({ deletedCount, requested: ids.length });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+};
+
 exports.getAllQuestions = async (req, res) => {
   try {
     const { 

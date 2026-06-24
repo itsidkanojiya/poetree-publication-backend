@@ -268,3 +268,62 @@ exports.deleteAnswerSheet = async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 };
+
+exports.bulkDeleteAnswerSheets = async (req, res) => {
+  try {
+    const { ids } = req.body;
+
+    // Validate non-empty array of ids
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ error: "ids must be a non-empty array" });
+    }
+
+    // Find the answer sheets to delete
+    const answerSheets = await AnswerSheet.findAll({
+      where: { answer_sheet_id: { [Op.in]: ids } },
+    });
+
+    // Clean up files per answer sheet
+    for (const answerSheet of answerSheets) {
+      // Delete the PDF file (answersheet_url)
+      if (answerSheet.answersheet_url) {
+        try {
+          const filePath = path.join(__dirname, "..", "..", answerSheet.answersheet_url);
+          if (fs.existsSync(filePath)) {
+            fs.unlinkSync(filePath);
+            console.log(`✅ Deleted file: ${filePath}`);
+          } else {
+            console.log(`❌ File not found: ${filePath}`);
+          }
+        } catch (fileErr) {
+          console.error(`Failed to delete answersheet_url for ${answerSheet.answer_sheet_id}:`, fileErr.message);
+        }
+      }
+
+      // Delete the cover image file (answersheet_coverlink)
+      if (answerSheet.answersheet_coverlink) {
+        try {
+          const coverPath = path.join(__dirname, "..", "..", answerSheet.answersheet_coverlink);
+          if (fs.existsSync(coverPath)) {
+            fs.unlinkSync(coverPath);
+            console.log(`✅ Deleted cover image: ${coverPath}`);
+          } else {
+            console.log(`❌ Cover image not found: ${coverPath}`);
+          }
+        } catch (fileErr) {
+          console.error(`Failed to delete answersheet_coverlink for ${answerSheet.answer_sheet_id}:`, fileErr.message);
+        }
+      }
+    }
+
+    // Bulk-remove the rows from the database
+    const deletedCount = await AnswerSheet.destroy({
+      where: { answer_sheet_id: { [Op.in]: ids } },
+    });
+
+    res.status(200).json({ deletedCount, requested: ids.length });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+};

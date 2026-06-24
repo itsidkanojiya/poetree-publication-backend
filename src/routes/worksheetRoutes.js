@@ -1,6 +1,6 @@
 const express = require('express');
 const { rateLimit, ipKeyGenerator } = require('express-rate-limit');
-const { addWorkSheet, getAllWorkSheets, deleteWorkSheet, getPersonalizedPdf } = require('../controllers/worksheetController');
+const { addWorkSheet, getAllWorkSheets, deleteWorkSheet, bulkDeleteWorkSheets, getPersonalizedPdf } = require('../controllers/worksheetController');
 const router = express.Router();
 const upload = require('../middlewares/upload');
 const verifyToken = require('../middlewares/verifyToken');
@@ -44,6 +44,9 @@ router.get(
   personalizedPdfLimiter,
   getPersonalizedPdf
 );
+
+// Bulk Delete Worksheets
+router.post('/bulk-delete', bulkDeleteWorkSheets);
 
 // Delete Worksheet
 router.delete('/:id', deleteWorkSheet);

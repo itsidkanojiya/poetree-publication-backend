@@ -12,6 +12,10 @@ const Chapter = sequelize.define('Chapter', {
     type: DataTypes.STRING(200),
     allowNull: false,
   },
+  chapter_number: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+  },
   subject_title_id: {
     type: DataTypes.INTEGER,
     allowNull: false,

@@ -253,6 +253,68 @@ exports.deleteWorkSheet = async (req, res) => {
   }
 };
 
+exports.bulkDeleteWorkSheets = async (req, res) => {
+  try {
+    const { ids } = req.body;
+
+    // Validate non-empty array of ids
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ error: "ids must be a non-empty array" });
+    }
+
+    // Find the worksheets to delete
+    const worksheets = await WorkSheet.findAll({
+      where: { worksheet_id: { [Op.in]: ids } },
+    });
+
+    // Clean up files and personalized PDF cache per worksheet
+    for (const worksheet of worksheets) {
+      // Delete the PDF file (worksheet_url)
+      if (worksheet.worksheet_url) {
+        try {
+          const filePath = path.join(__dirname, '..', '..', worksheet.worksheet_url);
+          if (fs.existsSync(filePath)) {
+            fs.unlinkSync(filePath);
+            console.log(`✅ Deleted file: ${filePath}`);
+          } else {
+            console.log(`❌ File not found: ${filePath}`);
+          }
+        } catch (fileErr) {
+          console.error(`Failed to delete worksheet_url for ${worksheet.worksheet_id}:`, fileErr.message);
+        }
+      }
+
+      // Delete the cover image file (worksheet_coverlink)
+      if (worksheet.worksheet_coverlink) {
+        try {
+          const coverPath = path.join(__dirname, '..', '..', worksheet.worksheet_coverlink);
+          if (fs.existsSync(coverPath)) {
+            fs.unlinkSync(coverPath);
+            console.log(`✅ Deleted cover image: ${coverPath}`);
+          } else {
+            console.log(`❌ Cover image not found: ${coverPath}`);
+          }
+        } catch (fileErr) {
+          console.error(`Failed to delete worksheet_coverlink for ${worksheet.worksheet_id}:`, fileErr.message);
+        }
+      }
+
+      // Invalidate the personalized PDF cache for this worksheet
+      personalizedPdfCache.invalidateByWorksheet(worksheet.worksheet_id);
+    }
+
+    // Bulk-remove the rows from the database
+    const deletedCount = await WorkSheet.destroy({
+      where: { worksheet_id: { [Op.in]: ids } },
+    });
+
+    res.status(200).json({ deletedCount, requested: ids.length });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+};
+
 /**
  * Get personalized PDF for a worksheet (user-facing view/download).
  * Requires authentication. User must be allowed to access this worksheet.
