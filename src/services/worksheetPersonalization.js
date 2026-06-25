@@ -52,7 +52,7 @@ function getWatermarkType(branding) {
 }
 
 /**
- * Personalize a canonical worksheet PDF with header (page 1 only) and watermark (every page).
+ * Personalize a canonical worksheet PDF with header and watermark on every page (no page limit).
  * Header: image-2 style — light beige band, white box with thin black border; logo left, school name + address right.
  * Does not modify the original file.
  * @param {string} canonicalPdfPath - Absolute path to the worksheet PDF file
@@ -64,7 +64,6 @@ async function personalizeWorksheetPdf(canonicalPdfPath, branding) {
   // Add extra vertical padding below the header box so the page content starts lower
   const extraHeaderPaddingMm = 6;
   const logoMaxHeightMm = personalizationConfig.logoMaxHeightMm;
-  const maxPages = personalizationConfig.maxPagesToPersonalize;
   const watermarkImageMaxHeightPt = personalizationConfig.watermarkImageMaxHeightPt || 50;
 
   const headerHeightPoints = (headerHeightMm + extraHeaderPaddingMm) * MM_TO_POINTS;
@@ -104,7 +103,7 @@ async function personalizeWorksheetPdf(canonicalPdfPath, branding) {
     return Buffer.from(await pdfDoc.save());
   }
 
-  const pagesToProcess = Math.min(pages.length, maxPages);
+  const pagesToProcess = pages.length; // header + watermark on ALL pages, no limit
   const schoolName = branding.schoolName && branding.schoolName.trim()
     ? branding.schoolName.trim()
     : personalizationConfig.defaultSchoolName;
@@ -130,7 +129,6 @@ async function personalizeWorksheetPdf(canonicalPdfPath, branding) {
   for (let i = 0; i < pagesToProcess; i++) {
     const page = pages[i];
     const { width, height } = page.getSize();
-    const isFirstPage = i === 0;
     const headerTop = height;
     const headerBottom = height - headerHeightPoints;
     const padding = 16;
@@ -139,8 +137,8 @@ async function personalizeWorksheetPdf(canonicalPdfPath, branding) {
     const innerLeft = boxInset + contentInset;
     const innerBottom = headerBottom + boxInset + contentInset;
 
-    // ----- Header only on page 1 (image-2 style: beige band + white box with thin black border) -----
-    if (isFirstPage) {
+    // ----- Header on every page (image-2 style: beige band + white box with thin black border) -----
+    {
       // 1) Beige/cream band for full header width (outside the white box)
       page.drawRectangle({
         x: 0,
@@ -217,7 +215,7 @@ async function personalizeWorksheetPdf(canonicalPdfPath, branding) {
     // Watermark on every page (none / text / image / text_and_image)
     const displayWatermarkText = watermarkText || schoolName;
     const centerX = width / 2;
-    const centerY = isFirstPage ? headerBottom / 2 : height / 2;
+    const centerY = headerBottom / 2;
 
     if (watermarkType !== 'none') {
       if ((watermarkType === 'text' || watermarkType === 'text_and_image') && displayWatermarkText) {
