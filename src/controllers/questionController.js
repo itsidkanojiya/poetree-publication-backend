@@ -8,6 +8,7 @@ const {
   normalizeQuestionType,
   SECTION_WEIGHT_KEYS,
 } = require("../services/smartPaperPropose");
+const { resolveStandardId } = require("../helpers/resolveStandardId");
 
 const ALLOWED_DIFFICULTY = ["easy", "medium", "hard"];
 
@@ -170,11 +171,14 @@ exports.addQuestion = async (req, res) => {
         // Get the uploaded image path safely
         const image_url = req.file?.filename ? `uploads/question/${type}/${req.file.filename}` : null;
 
+        // Normalize standard to the canonical standard_id (accepts id or grade name)
+        const standardId = await resolveStandardId(standardLevel);
+
         // Create the question
         const newQuestion = await Question.create({
             subject_title_id,
             subject_id,
-            standard: standardLevel,
+            standard: standardId,
             board_id,
             chapter_id: chapterIdNum,
             question,
@@ -207,7 +211,7 @@ exports.editQuestion = async (req, res) => {
 
     if (body.subject_id !== undefined && body.subject_id !== '') updates.subject_id = parseInt(body.subject_id, 10);
     if (body.subject_title_id !== undefined && body.subject_title_id !== '') updates.subject_title_id = parseInt(body.subject_title_id, 10);
-    if (body.standard !== undefined && body.standard !== '') updates.standard = parseInt(body.standard, 10);
+    if (body.standard !== undefined && body.standard !== '') updates.standard = await resolveStandardId(body.standard);
     if (body.board_id !== undefined && body.board_id !== '') updates.board_id = parseInt(body.board_id, 10);
     if (body.marks !== undefined && body.marks !== '') updates.marks = parseInt(body.marks, 10);
     if (body.difficulty !== undefined && body.difficulty !== "") {
