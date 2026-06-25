@@ -16,6 +16,10 @@ const Chapter = sequelize.define('Chapter', {
     type: DataTypes.INTEGER,
     allowNull: true,
   },
+  standard: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+  },
   subject_title_id: {
     type: DataTypes.INTEGER,
     allowNull: false,

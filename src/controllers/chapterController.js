@@ -27,7 +27,7 @@ exports.getChaptersBySubjectTitle = async (req, res) => {
 
     const chapters = await Chapter.findAll({
       where: { subject_title_id: id },
-      attributes: ['chapter_id', 'chapter_name', 'chapter_number', 'subject_title_id'],
+      attributes: ['chapter_id', 'chapter_name', 'chapter_number', 'standard', 'subject_title_id'],
       order: [
         [sequelize.literal('chapter_number IS NULL'), 'ASC'], // numbered chapters first
         ['chapter_number', 'ASC'],
@@ -41,10 +41,10 @@ exports.getChaptersBySubjectTitle = async (req, res) => {
   }
 };
 
-/** POST /api/chapters - Create a chapter (body: chapter_name, subject_title_id, chapter_number?) */
+/** POST /api/chapters - Create a chapter (body: chapter_name, subject_title_id, chapter_number?, standard?) */
 exports.createChapter = async (req, res) => {
   try {
-    const { chapter_name, subject_title_id, chapter_number } = req.body;
+    const { chapter_name, subject_title_id, chapter_number, standard } = req.body;
     if (!chapter_name || typeof chapter_name !== 'string' || !chapter_name.trim()) {
       return res.status(400).json({ success: false, error: 'chapter_name is required' });
     }
@@ -62,6 +62,15 @@ exports.createChapter = async (req, res) => {
       }
     }
 
+    // standard is optional; when provided it must be a positive integer
+    let standardVal = null;
+    if (standard != null && standard !== '') {
+      standardVal = parseInt(standard, 10);
+      if (isNaN(standardVal) || standardVal < 0) {
+        return res.status(400).json({ success: false, error: 'standard must be a non-negative number' });
+      }
+    }
+
     const subjectTitle = await SubjectTitle.findByPk(stId);
     if (!subjectTitle) {
       return res.status(404).json({ success: false, error: 'Subject title not found' });
@@ -69,6 +78,7 @@ exports.createChapter = async (req, res) => {
     const chapter = await Chapter.create({
       chapter_name: chapter_name.trim().slice(0, 200),
       chapter_number: chapterNumber,
+      standard: standardVal,
       subject_title_id: stId,
     });
     res.status(201).json({
@@ -78,6 +88,7 @@ exports.createChapter = async (req, res) => {
         chapter_id: chapter.chapter_id,
         chapter_name: chapter.chapter_name,
         chapter_number: chapter.chapter_number,
+        standard: chapter.standard,
         subject_title_id: chapter.subject_title_id,
       },
     });
@@ -100,7 +111,7 @@ exports.updateChapter = async (req, res) => {
       return res.status(404).json({ success: false, error: 'Chapter not found' });
     }
 
-    const { chapter_name, chapter_number } = req.body;
+    const { chapter_name, chapter_number, standard } = req.body;
     const updates = {};
 
     if (chapter_name != null) {
@@ -122,6 +133,18 @@ exports.updateChapter = async (req, res) => {
       }
     }
 
+    if (standard !== undefined) {
+      if (standard === null || standard === '') {
+        updates.standard = null;
+      } else {
+        const std = parseInt(standard, 10);
+        if (isNaN(std) || std < 0) {
+          return res.status(400).json({ success: false, error: 'standard must be a non-negative number' });
+        }
+        updates.standard = std;
+      }
+    }
+
     if (Object.keys(updates).length === 0) {
       return res.status(400).json({ success: false, error: 'Nothing to update' });
     }
@@ -134,6 +157,7 @@ exports.updateChapter = async (req, res) => {
         chapter_id: chapter.chapter_id,
         chapter_name: chapter.chapter_name,
         chapter_number: chapter.chapter_number,
+        standard: chapter.standard,
         subject_title_id: chapter.subject_title_id,
       },
     });
