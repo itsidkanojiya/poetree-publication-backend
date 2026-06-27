@@ -684,6 +684,8 @@ exports.questionAnalysis = async (req, res) => {
     const truefalse = await Question.count({ where: { type: "truefalse" } });
     const blank = await Question.count({ where: { type: "blank" } });
     const onetwo = await Question.count({ where: { type: "onetwo" } });
+    const passage = await Question.count({ where: { type: "passage" } });
+    const match = await Question.count({ where: { type: "match" } });
 
     res.json({
       total,
@@ -693,6 +695,8 @@ exports.questionAnalysis = async (req, res) => {
       truefalse,
       blank,
       onetwo,
+      passage,
+      match,
     });
   } catch (error) {
     console.error("Error fetching question statistics:", error);
