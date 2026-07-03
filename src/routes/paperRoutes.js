@@ -17,6 +17,9 @@ router.get('/templates/:id', paperController.getPaperById);
 // Route to get papers by user ID
 router.get('/user/:user_id', paperController.getPapersByUserId);
 
+// Marks breakdown per question type (for live estimated total). Must precede /:id.
+router.get('/marks-breakdown', verifyToken, paperController.marksBreakdown);
+
 // Route to get single paper by ID
 router.get('/:id', paperController.getPaperById);
 

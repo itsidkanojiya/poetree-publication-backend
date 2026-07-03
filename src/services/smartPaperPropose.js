@@ -247,6 +247,157 @@ function buildProposal({ pool, total_marks, section_weights, chapter_weights, di
   };
 }
 
+/**
+ * Count-based picker: choose the question that best fills the remaining chapter and
+ * difficulty COUNT targets. No marks/gap consideration (count mode ignores marks as a target).
+ */
+function pickBestQuestionByCount(available, chapterTarget, chapterCur, diffTarget, diffCur) {
+  if (!available.length) return null;
+  let best = null;
+  let bestScore = -Infinity;
+  for (const q of available) {
+    const ch = q.chapter_id;
+    const d = normalizeDifficulty(q.difficulty);
+    const chNeed = Math.max(0, (chapterTarget[ch] || 0) - (chapterCur[ch] || 0));
+    const dNeed = Math.max(0, (diffTarget[d] || 0) - (diffCur[d] || 0));
+    const score = chNeed * 2 + dNeed * 2;
+    if (score > bestScore) {
+      bestScore = score;
+      best = q;
+    }
+  }
+  return best;
+}
+
+/**
+ * Count-based proposal: select EXACTLY section_counts[type] questions per type.
+ * Chapter mix and difficulty mix are honoured as soft COUNT targets while picking.
+ * No marks target and no gap-fill — total marks is simply the sum of selected marks.
+ *
+ * @param {object} params
+ * @param {Array<{question_id:number,type:string,marks:number,chapter_id:number|null,difficulty?:string}>} params.pool
+ * @param {Record<string, number>} params.section_counts - keys = types, values = integer counts
+ * @param {Array<{chapter_id:number,percent:number}>} params.chapter_weights - normalized to sum 100
+ * @param {Record<string, number>} params.difficulty_weights - easy/medium/hard sum 100
+ * @param {string[]} params.warnings - mutated
+ * @param {string} [params.shortage_strategy] - 'available' (default): take what exists + warn
+ */
+function buildProposalByCount({ pool, section_counts, chapter_weights, difficulty_weights, warnings }) {
+  const used = new Set();
+  const selected = [];
+
+  const totalRequested = SECTION_WEIGHT_KEYS.reduce(
+    (s, k) => s + Math.max(0, Math.floor(Number(section_counts[k]) || 0)),
+    0
+  );
+
+  // Soft COUNT targets (how many questions per chapter / difficulty), from the % weights.
+  const chapterPercents = {};
+  chapter_weights.forEach((c) => {
+    chapterPercents[c.chapter_id] = c.percent;
+  });
+  const chapterTarget = allocateIntegerMarksFromPercents(chapterPercents, totalRequested);
+  const diffTarget = allocateIntegerMarksFromPercents(difficulty_weights, totalRequested);
+
+  const chapterCur = {};
+  const diffCur = { easy: 0, medium: 0, hard: 0 };
+
+  // Larger sections first so scarce shared questions land where most needed.
+  const order = SECTION_WEIGHT_KEYS
+    .filter((k) => Math.max(0, Math.floor(Number(section_counts[k]) || 0)) > 0)
+    .sort((a, b) => (section_counts[b] || 0) - (section_counts[a] || 0));
+
+  for (const type of order) {
+    const need = Math.max(0, Math.floor(Number(section_counts[type]) || 0));
+    let available = pool.filter(
+      (q) =>
+        normalizeQuestionType(q.type) === type &&
+        !used.has(q.question_id) &&
+        q.marks > 0
+    );
+
+    if (available.length < need) {
+      warnings.push(`section:${type}:insufficient_count:asked_${need}_have_${available.length}`);
+    }
+
+    const take = Math.min(need, available.length);
+    for (let i = 0; i < take; i++) {
+      const q = pickBestQuestionByCount(available, chapterTarget, chapterCur, diffTarget, diffCur);
+      if (!q) break;
+      used.add(q.question_id);
+      const ch = q.chapter_id;
+      const d = normalizeDifficulty(q.difficulty);
+      chapterCur[ch] = (chapterCur[ch] || 0) + 1;
+      diffCur[d] = (diffCur[d] || 0) + 1;
+      selected.push(q);
+      available = available.filter((x) => x.question_id !== q.question_id);
+    }
+  }
+
+  const total = selected.reduce((s, q) => s + q.marks, 0);
+  return { selected, total };
+}
+
+/**
+ * Totals for count mode: by_section reports requested vs actual COUNTS (and marks),
+ * since counts are the meaningful metric here. Chapter/difficulty kept for feedback.
+ */
+function buildTotalsByCount({ section_counts, chapter_weights, difficulty_weights, selected }) {
+  const total = selected.reduce((s, q) => s + q.marks, 0);
+  const totalCount = selected.length;
+
+  // Per-section counts + marks
+  const actualCountBySection = {};
+  const actualMarksBySection = {};
+  // Per-chapter marks; per-difficulty counts
+  const chapterMarks = {};
+  const diffCount = { easy: 0, medium: 0, hard: 0 };
+  for (const q of selected) {
+    const canon = normalizeQuestionType(q.type);
+    if (canon) {
+      actualCountBySection[canon] = (actualCountBySection[canon] || 0) + 1;
+      actualMarksBySection[canon] = (actualMarksBySection[canon] || 0) + q.marks;
+    }
+    if (q.chapter_id != null) chapterMarks[q.chapter_id] = (chapterMarks[q.chapter_id] || 0) + q.marks;
+    diffCount[normalizeDifficulty(q.difficulty)] += 1;
+  }
+
+  const by_section = {};
+  for (const t of SECTION_WEIGHT_KEYS) {
+    by_section[t] = {
+      requested_count: Math.max(0, Math.floor(Number(section_counts[t]) || 0)),
+      actual_count: actualCountBySection[t] || 0,
+      actual_marks: actualMarksBySection[t] || 0,
+    };
+  }
+
+  const by_chapter = chapter_weights.map((c) => {
+    const actual_marks = chapterMarks[c.chapter_id] || 0;
+    return {
+      chapter_id: c.chapter_id,
+      target_percent: c.percent,
+      actual_marks,
+      actual_percent: total > 0 ? Math.round((actual_marks / total) * 10000) / 100 : 0,
+    };
+  });
+
+  const by_difficulty = {};
+  DIFFICULTIES.forEach((d) => {
+    by_difficulty[d] = {
+      target_percent: difficulty_weights[d] ?? 0,
+      actual_percent: totalCount > 0 ? Math.round((diffCount[d] / totalCount) * 10000) / 100 : 0,
+    };
+  });
+
+  return {
+    total_marks: total,
+    total_questions: totalCount,
+    by_section,
+    by_chapter,
+    by_difficulty,
+  };
+}
+
 function computeAggregatesFromSelection(selected) {
   const sectionCur = {};
   const chapterCur = {};
@@ -340,7 +491,9 @@ module.exports = {
   validateSectionWeights,
   allocateIntegerMarksFromPercents,
   buildProposal,
+  buildProposalByCount,
   buildTotals,
+  buildTotalsByCount,
   buildSuggestions,
   computeAggregatesFromSelection,
 };

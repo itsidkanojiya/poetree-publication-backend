@@ -5,7 +5,9 @@ const Question = require('../models/Question');
 const { SubjectTitle } = require('../models/Subjects');
 const {
   buildProposal,
+  buildProposalByCount,
   buildTotals,
+  buildTotalsByCount,
   buildSuggestions,
   normalizeDifficulty,
   validateSectionWeights,
@@ -13,7 +15,7 @@ const {
   canonicalToDbType,
 } = require('../services/smartPaperPropose');
 const Header = require('../models/Header');
-const { Op } = require('sequelize');
+const { Op, fn, col } = require('sequelize');
 const path = require("path");
 const fs = require("fs");
 
@@ -1046,12 +1048,9 @@ exports.smartPropose = async (req, res) => {
                 error: 'subject_title_id, board_id, and standard must be numbers',
             });
         }
-        if (isNaN(total_marks) || total_marks < 1) {
-            return res.status(400).json({
-                success: false,
-                error: 'total_marks must be a positive integer',
-            });
-        }
+        // total_marks is only required for the marks-based (section_weights) path.
+        // In count mode it is optional (paper size = sum of selected question marks).
+        // Its per-mode validation happens after we know which mode is active.
 
         const { chapter_weights, difficulty_weights, section_weights, section_question_counts, exclude_question_ids } = body;
 
@@ -1242,14 +1241,50 @@ exports.smartPropose = async (req, res) => {
             });
         }
 
-        const proposal = buildProposal({
-            pool: poolFiltered,
-            total_marks,
-            section_weights: sectionWeightsNorm,
-            chapter_weights: cw,
-            difficulty_weights: difficultyWeightsNorm,
-            warnings,
-        });
+        let proposal;
+        let totals;
+        let balancingMode;
+
+        if (hasSectionCounts) {
+            // COUNT mode: select exactly the requested number of questions per type.
+            proposal = buildProposalByCount({
+                pool: poolFiltered,
+                section_counts: section_question_counts,
+                chapter_weights: cw,
+                difficulty_weights: difficultyWeightsNorm,
+                warnings,
+            });
+            totals = buildTotalsByCount({
+                section_counts: section_question_counts,
+                chapter_weights: cw,
+                difficulty_weights: difficultyWeightsNorm,
+                selected: proposal.selected,
+            });
+            balancingMode = 'count';
+        } else {
+            // MARKS mode: section_weights percentages against total_marks.
+            if (isNaN(total_marks) || total_marks < 1) {
+                return res.status(400).json({
+                    success: false,
+                    error: 'total_marks must be a positive integer',
+                });
+            }
+            proposal = buildProposal({
+                pool: poolFiltered,
+                total_marks,
+                section_weights: sectionWeightsNorm,
+                chapter_weights: cw,
+                difficulty_weights: difficultyWeightsNorm,
+                warnings,
+            });
+            totals = buildTotals({
+                section_weights: sectionWeightsNorm,
+                chapter_weights: cw,
+                difficulty_weights: difficultyWeightsNorm,
+                selected: proposal.selected,
+            });
+            balancingMode = 'marks';
+        }
 
         const selected = proposal.selected;
         const questions = selected.map((q, i) => ({
@@ -1261,13 +1296,6 @@ exports.smartPropose = async (req, res) => {
             order: i + 1,
         }));
 
-        const totals = buildTotals({
-            section_weights: sectionWeightsNorm,
-            chapter_weights: cw,
-            difficulty_weights: difficultyWeightsNorm,
-            selected,
-        });
-
         const suggestions = buildSuggestions(warnings, cw, poolFiltered);
 
         return res.status(200).json({
@@ -1277,10 +1305,13 @@ exports.smartPropose = async (req, res) => {
             warnings,
             suggestions,
             meta: {
-                balancing:
-                    'Marks are used for section, chapter, and difficulty targets (by_difficulty.actual_percent is % of total paper marks).',
+                balancing: balancingMode,
+                mode:
+                    balancingMode === 'count'
+                        ? 'Exact question counts per type (section_question_counts). Total marks = sum of selected questions.'
+                        : 'Marks are used for section, chapter, and difficulty targets (by_difficulty.actual_percent is % of total paper marks).',
                 section_weights:
-                    'All eight keys required: mcq, blank, true_false, onetwo, short, long, passage, match (sum 100). DB stores truefalse; totals use true_false.',
+                    'Canonical keys: mcq, blank, true_false, onetwo, short, long, passage, match. DB stores truefalse; totals use true_false.',
             },
         });
     } catch (error) {
@@ -1288,6 +1319,77 @@ exports.smartPropose = async (req, res) => {
         return res.status(500).json({
             success: false,
             message: 'Error building smart proposal',
+            error: error.message,
+        });
+    }
+};
+
+/**
+ * GET /api/papers/marks-breakdown?subject_title_id=&board_id=&standard=
+ * Per question-type: how many questions exist and their marks (unit/avg/min/max), so the
+ * client can show a live estimated total (count × unit_marks) before generating a paper.
+ */
+exports.marksBreakdown = async (req, res) => {
+    try {
+        const subject_title_id = parseInt(req.query.subject_title_id, 10);
+        const board_id = parseInt(req.query.board_id, 10);
+        const standard = parseInt(req.query.standard, 10);
+        if (isNaN(subject_title_id) || isNaN(board_id) || isNaN(standard)) {
+            return res.status(400).json({
+                success: false,
+                error: 'subject_title_id, board_id, and standard are required as numbers',
+            });
+        }
+
+        const rows = await Question.findAll({
+            where: { subject_title_id, board_id, standard },
+            attributes: [
+                'type',
+                [fn('COUNT', col('question_id')), 'available'],
+                [fn('AVG', col('marks')), 'avg_marks'],
+                [fn('MIN', col('marks')), 'min_marks'],
+                [fn('MAX', col('marks')), 'max_marks'],
+            ],
+            group: ['type'],
+            raw: true,
+        });
+
+        const by_type = {};
+        SECTION_WEIGHT_KEYS.forEach((k) => {
+            by_type[k] = {
+                available: 0,
+                unit_marks: 0,
+                uniform: true,
+                min_marks: 0,
+                max_marks: 0,
+                avg_marks: 0,
+            };
+        });
+
+        rows.forEach((r) => {
+            const canon = r.type === 'truefalse' ? 'true_false' : r.type;
+            if (!SECTION_WEIGHT_KEYS.includes(canon)) return;
+            const min = Number(r.min_marks) || 0;
+            const max = Number(r.max_marks) || 0;
+            const avg = Number(r.avg_marks) || 0;
+            const uniform = min === max;
+            by_type[canon] = {
+                available: Number(r.available) || 0,
+                // unit_marks = the marks value if all questions of this type share it, else rounded average
+                unit_marks: uniform ? min : Math.round(avg),
+                uniform,
+                min_marks: min,
+                max_marks: max,
+                avg_marks: Math.round(avg * 100) / 100,
+            };
+        });
+
+        return res.status(200).json({ success: true, by_type });
+    } catch (error) {
+        console.error('marksBreakdown:', error);
+        return res.status(500).json({
+            success: false,
+            message: 'Error building marks breakdown',
             error: error.message,
         });
     }
