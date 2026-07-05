@@ -8,11 +8,12 @@ const verifyToken = require('../middlewares/verifyToken');
 // Route to get all papers
 router.get('/', paperController.getAllPapers);
 
-// Route to get templates (public access) - must be before /user/:user_id to avoid conflicts
-router.get('/templates', paperController.getTemplates);
+// Prebuilt Question (templates) feature commented out — not needed for now
+// // Route to get templates (public access) - must be before /user/:user_id to avoid conflicts
+// router.get('/templates', paperController.getTemplates);
 
-// Route to get template by ID (public access) - must be before /:id to avoid conflicts
-router.get('/templates/:id', paperController.getPaperById);
+// // Route to get template by ID (public access) - must be before /:id to avoid conflicts
+// router.get('/templates/:id', paperController.getPaperById);
 
 // Route to get papers by user ID
 router.get('/user/:user_id', paperController.getPapersByUserId);
@@ -32,14 +33,15 @@ router.put('/:id', upload.single('logo'), paperController.updatePaper);
 // Smart paper proposal (authenticated users)
 router.post('/smart-propose', verifyToken, paperController.smartPropose);
 
-// Route to create template (admin only)
-router.post('/templates/create', authMiddleware.verifyAdmin, upload.single('logo'), paperController.createTemplate);
+// Prebuilt Question (templates) feature commented out — not needed for now
+// // Route to create template (admin only)
+// router.post('/templates/create', authMiddleware.verifyAdmin, upload.single('logo'), paperController.createTemplate);
 
-// Route to update template (admin only)
-router.put('/templates/:id', authMiddleware.verifyAdmin, upload.single('logo'), paperController.updateTemplate);
+// // Route to update template (admin only)
+// router.put('/templates/:id', authMiddleware.verifyAdmin, upload.single('logo'), paperController.updateTemplate);
 
-// Route to clone template (authenticated users)
-router.post('/templates/:id/clone', verifyToken, paperController.cloneTemplate);
+// // Route to clone template (authenticated users)
+// router.post('/templates/:id/clone', verifyToken, paperController.cloneTemplate);
 
 // Route to delete papers by paper ID
 router.delete('/delete/:id', paperController.deletePaper);

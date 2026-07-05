@@ -40,6 +40,15 @@ const storage = multer.diskStorage({
         } else if (file.fieldname === "paper_word") {
             // Readymade paper Word file
             uploadPath += "readymadepaper/word";
+        } else if (file.fieldname === "planner_pdf") {
+            // Planner PDF
+            uploadPath += "planner/pdf";
+        } else if (file.fieldname === "timetable_pdf") {
+            // Time table PDF
+            uploadPath += "timetable/pdf";
+        } else if (file.fieldname === "paper_style_pdf") {
+            // Paper style PDF
+            uploadPath += "paperstyle/pdf";
       } else if (file.fieldname === "logo" && req.originalUrl.includes("profile")) {
             // Upload Path for User Profile Logo
             uploadPath += "papers/logo/";
