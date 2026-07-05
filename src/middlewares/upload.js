@@ -34,6 +34,12 @@ const storage = multer.diskStorage({
         } else if (file.fieldname === "worksheet_coverlink") {
             // Upload path for image (cover) file
             uploadPath += "worksheet/coverlink";
+        } else if (file.fieldname === "paper_pdf") {
+            // Readymade paper PDF (must come before the generic "papers" url check below)
+            uploadPath += "readymadepaper/pdf";
+        } else if (file.fieldname === "paper_word") {
+            // Readymade paper Word file
+            uploadPath += "readymadepaper/word";
       } else if (file.fieldname === "logo" && req.originalUrl.includes("profile")) {
             // Upload Path for User Profile Logo
             uploadPath += "papers/logo/";

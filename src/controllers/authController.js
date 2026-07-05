@@ -1296,6 +1296,10 @@ exports.updateProfile = async (req, res) => {
     if (req.file || logo_url !== undefined) {
       updateData.logo = logoPath;
       if (logo_url !== undefined) updateData.logo_url = logo_url && logo_url.trim() !== '' ? logo_url.trim() : null;
+      // The logo affects the personalized worksheet header/watermark, so drop the
+      // cached PDFs for this user (watermark branches already do this; the logo
+      // branch previously did not, so a new logo could stay hidden until TTL).
+      personalizedPdfCache.invalidateByUser(userId);
     }
     if (worksheet_watermark_opacity !== undefined) {
       const opacity = Number(worksheet_watermark_opacity);

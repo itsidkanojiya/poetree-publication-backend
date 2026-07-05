@@ -218,7 +218,14 @@ async function personalizeWorksheetPdf(canonicalPdfPath, branding) {
     const centerY = headerBottom / 2;
 
     if (watermarkType !== 'none') {
-      if ((watermarkType === 'text' || watermarkType === 'text_and_image') && displayWatermarkText) {
+      // If the user chose an image watermark but the image couldn't be embedded
+      // (e.g. the logo file is missing on disk), fall back to a text watermark so
+      // the page still shows one instead of nothing.
+      const drawTextWatermark =
+        watermarkType === 'text' ||
+        watermarkType === 'text_and_image' ||
+        (watermarkType === 'image' && !watermarkImage);
+      if (drawTextWatermark && displayWatermarkText) {
         const approxTextWidth = displayWatermarkText.length * effectiveWatermarkFontSize * 0.5;
         const wx = centerX - approxTextWidth / 2;
         const wy = centerY - effectiveWatermarkFontSize / 2;
