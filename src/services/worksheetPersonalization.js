@@ -95,12 +95,16 @@ async function personalizeWorksheetPdf(canonicalPdfPath, branding) {
   const effectiveWatermarkFontSize = Math.round(baseWatermarkFontSize * textSizeScale);
 
   const pdfBytes = fs.readFileSync(canonicalPdfPath);
-  const pdfDoc = await PDFDocument.load(pdfBytes);
+  // updateMetadata:false skips rewriting doc metadata (noticeably faster on big files)
+  const pdfDoc = await PDFDocument.load(pdfBytes, { updateMetadata: false });
   const helvetica = await pdfDoc.embedFont(StandardFonts.Helvetica);
   const pages = pdfDoc.getPages();
 
+  // useObjectStreams:false makes save() much faster on large PDFs (slightly bigger output)
+  const SAVE_OPTS = { useObjectStreams: false };
+
   if (pages.length === 0) {
-    return Buffer.from(await pdfDoc.save());
+    return Buffer.from(await pdfDoc.save(SAVE_OPTS));
   }
 
   const pagesToProcess = pages.length; // header + watermark on ALL pages, no limit
@@ -244,20 +248,30 @@ async function personalizeWorksheetPdf(canonicalPdfPath, branding) {
         const offsetY = watermarkType === 'text_and_image' && displayWatermarkText
           ? -wImgDims.height - 20
           : 0;
-        const imgX = centerX - wImgDims.width / 2;
-        const imgY = centerY - wImgDims.height / 2 + offsetY;
-        page.save();
-        page.translate(imgX + wImgDims.width / 2, imgY + wImgDims.height / 2);
-        page.rotate(degrees(textBendDeg));
-        page.translate(-(imgX + wImgDims.width / 2), -(imgY + wImgDims.height / 2));
+
+        // pdf-lib's PDFPage has no save()/translate()/rotate()/restore() — calling
+        // them throws ("page.save is not a function") and aborts personalization.
+        // drawImage() supports `rotate` directly, but it rotates about the image's
+        // (x, y) anchor (bottom-left), so offset the anchor to keep the rotated
+        // image centred on (targetCx, targetCy).
+        const targetCx = centerX;
+        const targetCy = centerY + offsetY;
+        const halfW = wImgDims.width / 2;
+        const halfH = wImgDims.height / 2;
+        const rad = (textBendDeg * Math.PI) / 180;
+        const cos = Math.cos(rad);
+        const sin = Math.sin(rad);
+        const imgX = targetCx - (halfW * cos - halfH * sin);
+        const imgY = targetCy - (halfW * sin + halfH * cos);
+
         page.drawImage(watermarkImage, {
           x: imgX,
           y: imgY,
           width: wImgDims.width,
           height: wImgDims.height,
           opacity: watermarkOpacity,
+          rotate: degrees(textBendDeg),
         });
-        page.restore();
       }
     }
   }
