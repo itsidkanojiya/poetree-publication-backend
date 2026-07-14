@@ -46,11 +46,40 @@ function resolveRichFields(body, type) {
     out.solution = htmlToPlain(sHtml);
   }
 
-  if (type !== "passage" && type !== "match") {
-    const oHtml = sanitizeOptionsHtml(body.options_html);
-    if (oHtml && oHtml.length) {
-      out.options_html = JSON.stringify(oHtml);
-      out.optionsPlain = optionsHtmlToPlain(oHtml); // flat string[] — never objects
+  if (type !== "passage" && body.options_html != null && body.options_html !== "") {
+    let parsed = body.options_html;
+    if (typeof parsed === "string") {
+      try {
+        parsed = JSON.parse(parsed);
+      } catch {
+        parsed = null;
+      }
+    }
+
+    if (type === "match") {
+      // Match keeps its {left, right} shape — mirrored 1:1 in HTML and plain text.
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        const left = (Array.isArray(parsed.left) ? parsed.left : []).map((f) =>
+          sanitizeQuestionHtml(String(f ?? ""))
+        );
+        const right = (Array.isArray(parsed.right) ? parsed.right : []).map((f) =>
+          sanitizeQuestionHtml(String(f ?? ""))
+        );
+        if (left.length || right.length) {
+          out.options_html = JSON.stringify({ left, right });
+          out.optionsPlain = {
+            left: left.map(htmlToPlain),
+            right: right.map(htmlToPlain),
+          };
+        }
+      }
+    } else if (Array.isArray(parsed)) {
+      // MCQ and friends: a flat array of HTML fragments.
+      const arr = parsed.map((f) => sanitizeQuestionHtml(String(f ?? "")));
+      if (arr.length) {
+        out.options_html = JSON.stringify(arr);
+        out.optionsPlain = optionsHtmlToPlain(arr); // flat string[] — never objects
+      }
     }
   }
 
