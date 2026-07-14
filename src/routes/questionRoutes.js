@@ -14,8 +14,17 @@ const upload = require("../middlewares/upload");
 
 const router = express.Router();
 
-router.post("/add", authMiddleware.verifyAdmin, upload.single("image"), addQuestion);
-router.put("/edit/:id", authMiddleware.verifyAdmin, upload.single("image"), editQuestion);
+// Accept the legacy single `image`, the flattened `composite_image`, and multiple
+// source images (`images[]`) in one multipart request.
+const questionUpload = upload.fields([
+  { name: "image", maxCount: 1 },
+  { name: "composite_image", maxCount: 1 },
+  { name: "images[]", maxCount: 20 },
+  { name: "images", maxCount: 20 },
+]);
+
+router.post("/add", authMiddleware.verifyAdmin, questionUpload, addQuestion);
+router.put("/edit/:id", authMiddleware.verifyAdmin, questionUpload, editQuestion);
 router.delete("/delete/:id", authMiddleware.verifyAdmin, deleteQuestion);
 router.post("/bulk-delete", authMiddleware.verifyAdmin, bulkDeleteQuestions);
 router.get("/", getAllQuestions);

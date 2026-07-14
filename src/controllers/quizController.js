@@ -252,7 +252,10 @@ async function loadQuizForPdf(req, res) {
     const byId = await Question.findAll({
       where: { question_id: { [Op.in]: ids } },
       order: [['question_id', 'ASC']],
-      attributes: ['question_id', 'question', 'answer', 'options', 'marks'],
+      attributes: [
+        'question_id', 'question', 'answer', 'options', 'marks',
+        'composite_image_url', 'composite_width', 'composite_height', 'image_placement', 'image_align',
+      ],
     });
     const map = {};
     byId.forEach((q) => {

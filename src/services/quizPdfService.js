@@ -1,4 +1,6 @@
 const { PDFDocument, rgb, StandardFonts } = require('pdf-lib');
+const fs = require('fs');
+const path = require('path');
 
 const PAGE_WIDTH = 595.28;
 const PAGE_HEIGHT = 841.89;
@@ -7,6 +9,63 @@ const LINE_HEIGHT = 14;
 const TITLE_SIZE = 16;
 const BODY_SIZE = 11;
 const OPTION_SIZE = 10;
+
+// Project root (two levels up from src/services) — composite paths are relative to it.
+const ROOT_DIR = path.resolve(__dirname, '..', '..');
+
+/** True when the bytes start with the JPEG SOI marker (composites are normally PNG). */
+function isJpeg(bytes) {
+  return bytes.length > 2 && bytes[0] === 0xff && bytes[1] === 0xd8;
+}
+
+/** Placement/alignment as stored on the question, normalized with safe defaults. */
+function compositePlacement(question) {
+  const p = String((question && question.image_placement) || 'below').toLowerCase();
+  // pdf-lib has no text wrapping, so floats/inline degrade to a block below the text.
+  return p === 'above' ? 'above' : 'below';
+}
+
+function compositeAlign(question) {
+  const a = String((question && question.image_align) || 'center').toLowerCase();
+  return a === 'left' || a === 'right' ? a : 'center';
+}
+
+/**
+ * Embed a question's composite image (relative path) and return { image, width, height }
+ * scaled to fit within maxWidth AND maxHeight points, or null when absent/unreadable.
+ * Handles both PNG and JPEG so a non-PNG composite doesn't silently vanish.
+ */
+async function embedCompositeImage(pdfDoc, question, maxWidth, maxHeight) {
+  const rel = question && question.composite_image_url;
+  if (!rel) return null;
+  try {
+    const abs = path.join(ROOT_DIR, rel);
+    if (!fs.existsSync(abs)) return null;
+    const bytes = fs.readFileSync(abs);
+    const image = isJpeg(bytes)
+      ? await pdfDoc.embedJpg(bytes)
+      : await pdfDoc.embedPng(bytes);
+    // Clamp on BOTH axes so a tall composite can never overflow the page.
+    const scale = Math.min(
+      1,
+      maxWidth / image.width,
+      maxHeight > 0 ? maxHeight / image.height : 1
+    );
+    return { image, width: image.width * scale, height: image.height * scale };
+  } catch (e) {
+    console.warn('[quizPdf] failed to embed composite image:', e.message);
+    return null;
+  }
+}
+
+/** X coordinate for a composite of `width` given its alignment within the content column. */
+function compositeX(align, width, contentWidth) {
+  const left = MARGIN + 18;
+  const usable = contentWidth - 18;
+  if (align === 'right') return left + Math.max(0, usable - width);
+  if (align === 'center') return left + Math.max(0, (usable - width) / 2);
+  return left;
+}
 
 /** Sanitize text for PDF (remove control chars, limit length). */
 function sanitize(text) {
@@ -119,13 +178,34 @@ async function generateQuizPaperPdf(paper, questions, branding = {}) {
 
     const qLines = wrapText(font, qText, BODY_SIZE, contentWidth - 20);
     const optLines = opts.map((o, j) => `  ${String.fromCharCode(65 + j)}. ${sanitize(o)}`);
+
+    // Composite image. Scaled to fit the content column and clamped to the usable page
+    // height; its exact height is added to the page-break budget so a question is never
+    // split across the page boundary. Honours image_placement (above/below) and image_align.
+    const maxImageHeight = PAGE_HEIGHT - MARGIN * 2 - LINE_HEIGHT * 2;
+    const composite = await embedCompositeImage(pdfDoc, q, contentWidth - 18, maxImageHeight);
+    const placement = compositePlacement(q);
+    const align = compositeAlign(q);
+
     const totalLines = 1 + qLines.length + optLines.length;
-    const needed = totalLines * LINE_HEIGHT + 10;
+    const needed = totalLines * LINE_HEIGHT + 10 + (composite ? composite.height + 8 : 0);
 
     if (y - needed < MARGIN) {
       page = pdfDoc.addPage(PAGE_WIDTH, PAGE_HEIGHT);
       y = PAGE_HEIGHT - MARGIN;
     }
+
+    const drawComposite = () => {
+      if (!composite) return;
+      y -= composite.height;
+      page.drawImage(composite.image, {
+        x: compositeX(align, composite.width, contentWidth),
+        y,
+        width: composite.width,
+        height: composite.height,
+      });
+      y -= 8;
+    };
 
     page.drawText(`${qNum}.`, {
       x: MARGIN,
@@ -136,10 +216,15 @@ async function generateQuizPaperPdf(paper, questions, branding = {}) {
     });
     y -= LINE_HEIGHT;
 
+    if (placement === 'above') drawComposite();
+
     for (const line of qLines) {
       page.drawText(line, { x: MARGIN + 18, y, size: BODY_SIZE, font, color: black });
       y -= LINE_HEIGHT;
     }
+
+    if (placement === 'below') drawComposite();
+
     for (const line of optLines) {
       page.drawText(line, { x: MARGIN + 18, y, size: OPTION_SIZE, font, color: black });
       y -= LINE_HEIGHT;

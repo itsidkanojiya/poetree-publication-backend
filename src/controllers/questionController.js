@@ -17,6 +17,83 @@ function normalizeDifficultyValue(d) {
   const x = String(d).toLowerCase();
   return ALLOWED_DIFFICULTY.includes(x) ? x : "medium";
 }
+
+const ROOT_DIR = path.resolve(__dirname, "..", "..");
+
+/** Delete a relative upload path from disk if it exists (best-effort). */
+function unlinkUpload(relPath) {
+  if (!relPath) return;
+  try {
+    const abs = path.join(ROOT_DIR, relPath);
+    if (fs.existsSync(abs)) fs.unlinkSync(abs);
+  } catch (e) {
+    console.warn("[question] failed to unlink", relPath, e.message);
+  }
+}
+
+/**
+ * Build the image-related columns from an uploaded question request.
+ * Reads req.files (upload.fields) for `image`, `composite_image`, `images[]`/`images`
+ * and the scalar layout fields from req.body. Returns only the keys that are present
+ * so it can be spread into create()/update() without clobbering existing values.
+ */
+function buildImageFields(req, type) {
+  const files = req.files || {};
+  const body = req.body || {};
+  const out = {};
+  const dir = `uploads/question/${type}`;
+
+  const legacy = files.image && files.image[0];
+  if (legacy) out.image_url = `${dir}/${legacy.filename}`;
+
+  const composite = files.composite_image && files.composite_image[0];
+  if (composite) out.composite_image_url = `${dir}/${composite.filename}`;
+
+  const sources = files["images[]"] || files.images || [];
+  if (sources.length > 0) {
+    out.images = JSON.stringify(sources.map((f) => `${dir}/${f.filename}`));
+  }
+
+  if (body.image_layout !== undefined)
+    out.image_layout = body.image_layout || null;
+  if (body.image_placement !== undefined)
+    out.image_placement = body.image_placement || null;
+  if (body.image_align !== undefined)
+    out.image_align = body.image_align || null;
+  if (body.composite_width !== undefined && body.composite_width !== "")
+    out.composite_width = parseInt(body.composite_width, 10) || null;
+  if (body.composite_height !== undefined && body.composite_height !== "")
+    out.composite_height = parseInt(body.composite_height, 10) || null;
+
+  return out;
+}
+
+/** Fully clear the composite/multi-image columns (used on removal). */
+function clearedImageFields() {
+  return {
+    images: null,
+    image_layout: null,
+    composite_image_url: null,
+    composite_width: null,
+    composite_height: null,
+    image_placement: null,
+    image_align: null,
+  };
+}
+
+/** Collect all on-disk file paths a question references (for cleanup). */
+function collectQuestionFiles(question) {
+  const paths = [];
+  if (question.image_url) paths.push(question.image_url);
+  if (question.composite_image_url) paths.push(question.composite_image_url);
+  if (question.images) {
+    try {
+      const arr = JSON.parse(question.images);
+      if (Array.isArray(arr)) paths.push(...arr.filter(Boolean));
+    } catch { /* ignore malformed */ }
+  }
+  return paths;
+}
 Question.belongsTo(Subject, { foreignKey: "subject_id", as: "subject" });
 Question.belongsTo(SubjectTitle, {
   foreignKey: "subject_title_id",
@@ -168,8 +245,9 @@ exports.addQuestion = async (req, res) => {
             answerToStore = answer != null ? String(answer).trim() : null;
         }
 
-        // Get the uploaded image path safely
-        const image_url = req.file?.filename ? `uploads/question/${type}/${req.file.filename}` : null;
+        // Uploaded image(s): legacy single image, fabric composite PNG, and/or
+        // multiple source images, plus the layout/placement scalars.
+        const imageFields = buildImageFields(req, type);
 
         // Normalize standard to the canonical standard_id (accepts id or grade name)
         const standardId = await resolveStandardId(standardLevel);
@@ -188,7 +266,7 @@ exports.addQuestion = async (req, res) => {
             marks,
             difficulty: difficultyNorm,
             options: formattedOptions,
-            image_url,  // Save full image path
+            ...imageFields, // image_url, composite_image_url, images, layout, placement, align, dims
         });
 
         res.status(201).json({ message: 'Question added successfully', question: newQuestion });
@@ -281,15 +359,25 @@ exports.editQuestion = async (req, res) => {
       }
     }
 
-    if (req.file) {
-      const rootDir = path.resolve(__dirname, "..", "..");
-      const oldImagePath = existingQuestion.image_url ? path.join(rootDir, existingQuestion.image_url) : null;
-      if (oldImagePath && fs.existsSync(oldImagePath)) {
-        fs.unlinkSync(oldImagePath);
-      }
-      const type = body.type || existingQuestion.type;
-      updates.image_url = `uploads/question/${type}/${req.file.filename}`;
+    const effectiveTypeForImage = body.type || existingQuestion.type;
+
+    // Explicit removal of the composite / multi-image block (keeps legacy image_url).
+    if (body.clear_images === "true" || body.clear_images === true) {
+      collectQuestionFiles({
+        composite_image_url: existingQuestion.composite_image_url,
+        images: existingQuestion.images,
+      }).forEach(unlinkUpload);
+      Object.assign(updates, clearedImageFields());
     }
+
+    // New/replacement uploads. Delete the files being replaced before overwriting.
+    const imageFields = buildImageFields(req, effectiveTypeForImage);
+    if (imageFields.image_url) unlinkUpload(existingQuestion.image_url);
+    if (imageFields.composite_image_url) unlinkUpload(existingQuestion.composite_image_url);
+    if (imageFields.images) {
+      collectQuestionFiles({ images: existingQuestion.images }).forEach(unlinkUpload);
+    }
+    Object.assign(updates, imageFields);
 
     if (Object.keys(updates).length > 0) {
       await existingQuestion.update(updates);
@@ -315,20 +403,8 @@ exports.deleteQuestion = async (req, res) => {
     if (!question)
       return res.status(404).json({ message: "Question not found" });
 
-    // If the question has an image, delete it from the server
-    if (question.image_url) {
-      // Get the absolute path of the 'uploads' folder at the project root
-      const rootDir = path.resolve(__dirname, "..", ".."); // Move up TWO levels from src
-      const imagePath = path.join(rootDir, question.image_url);
-
-      // Check if the file exists before deleting
-      if (fs.existsSync(imagePath)) {
-        fs.unlinkSync(imagePath);
-        console.log(`✅ Deleted file: ${imagePath}`);
-      } else {
-        console.log(`❌ File not found: ${imagePath}`);
-      }
-    }
+    // Delete all image files this question references (legacy + composite + sources)
+    collectQuestionFiles(question).forEach(unlinkUpload);
 
     // Delete the question from the database
     await question.destroy();
@@ -357,21 +433,9 @@ exports.bulkDeleteQuestions = async (req, res) => {
       where: { question_id: { [Op.in]: ids } },
     });
 
-    // Delete each image file (reuses cleanup logic from deleteQuestion)
+    // Delete each question's image files (legacy + composite + sources)
     for (const question of questions) {
-      if (question.image_url) {
-        // Get the absolute path of the 'uploads' folder at the project root
-        const rootDir = path.resolve(__dirname, "..", ".."); // Move up TWO levels from src
-        const imagePath = path.join(rootDir, question.image_url);
-
-        // Check if the file exists before deleting
-        if (fs.existsSync(imagePath)) {
-          fs.unlinkSync(imagePath);
-          console.log(`✅ Deleted file: ${imagePath}`);
-        } else {
-          console.log(`❌ File not found: ${imagePath}`);
-        }
-      }
+      collectQuestionFiles(question).forEach(unlinkUpload);
     }
 
     // Bulk-remove the rows from the database
@@ -515,6 +579,13 @@ exports.getAllQuestions = async (req, res) => {
         "difficulty",
         "options",
         "image_url",
+        "images",
+        "image_layout",
+        "composite_image_url",
+        "composite_width",
+        "composite_height",
+        "image_placement",
+        "image_align",
         "marks",
         "board_id"
       ],
@@ -604,6 +675,26 @@ exports.getAllQuestions = async (req, res) => {
           chapter_name: q.chapter.chapter_name
         } : null,
         image_url: questionData.image_url ? `${baseUrl}/${questionData.image_url}` : null,
+        // Fabric composite image block
+        composite_image_url: questionData.composite_image_url
+          ? `${baseUrl}/${questionData.composite_image_url}`
+          : null,
+        images: (() => {
+          if (!questionData.images) return [];
+          try {
+            const arr = JSON.parse(questionData.images);
+            return Array.isArray(arr)
+              ? arr.filter(Boolean).map((p) => `${baseUrl}/${p}`)
+              : [];
+          } catch {
+            return [];
+          }
+        })(),
+        image_layout: questionData.image_layout || null,
+        composite_width: questionData.composite_width ?? null,
+        composite_height: questionData.composite_height ?? null,
+        image_placement: questionData.image_placement || null,
+        image_align: questionData.image_align || null,
       };
     });
 

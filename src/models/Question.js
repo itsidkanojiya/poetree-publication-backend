@@ -56,7 +56,37 @@ const Question = sequelize.define('questions', {
   },image_url: {
     type: DataTypes.STRING,  // Make sure this field exists
     allowNull: true
-}, marks: {
+},
+  // Multi-image + fabric composite support
+  images: {
+    type: DataTypes.TEXT, // JSON array of relative source-image paths
+    allowNull: true,
+  },
+  image_layout: {
+    type: DataTypes.TEXT('long'), // fabric canvas JSON (may embed base64)
+    allowNull: true,
+  },
+  composite_image_url: {
+    type: DataTypes.STRING, // relative path to flattened composite PNG
+    allowNull: true,
+  },
+  composite_width: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+  },
+  composite_height: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+  },
+  image_placement: {
+    type: DataTypes.STRING, // inline | above | below | left | right
+    allowNull: true,
+  },
+  image_align: {
+    type: DataTypes.STRING, // left | center | right
+    allowNull: true,
+  },
+  marks: {
     type: DataTypes.INTEGER,
     allowNull: false,
   },
