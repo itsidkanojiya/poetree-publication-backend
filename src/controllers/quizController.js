@@ -90,6 +90,8 @@ exports.suggestMcq = async (req, res) => {
         'type',
         'options',
         'marks',
+        'question_html',
+        'options_html',
       ],
     });
 
@@ -172,6 +174,8 @@ exports.getQuizWithQuestions = async (req, res) => {
           'options',
           'marks',
           'image_url',
+          'question_html',
+          'options_html',
         ],
       });
       const map = {};

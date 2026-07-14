@@ -53,7 +53,23 @@ const Question = sequelize.define('questions', {
   options: {
     type: DataTypes.TEXT,
     allowNull: true,
-  },image_url: {
+  },
+  // Rich-text ("Word-like") bodies. The plain siblings above stay authoritative for
+  // consumers that cannot render HTML (pdf-lib quiz PDF, live-quiz payload) and are
+  // always regenerated from these on write — see src/utils/richText.js.
+  question_html: {
+    type: DataTypes.TEXT('long'),
+    allowNull: true,
+  },
+  options_html: {
+    type: DataTypes.TEXT('long'),
+    allowNull: true,
+  },
+  solution_html: {
+    type: DataTypes.TEXT('long'),
+    allowNull: true,
+  },
+  image_url: {
     type: DataTypes.STRING,  // Make sure this field exists
     allowNull: true
 },

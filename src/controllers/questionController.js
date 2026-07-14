@@ -9,8 +9,53 @@ const {
   SECTION_WEIGHT_KEYS,
 } = require("../services/smartPaperPropose");
 const { resolveStandardId } = require("../helpers/resolveStandardId");
+const {
+  sanitizeQuestionHtml,
+  sanitizeOptionsHtml,
+  htmlToPlain,
+  optionsHtmlToPlain,
+} = require("../utils/richText");
 
 const ALLOWED_DIFFICULTY = ["easy", "medium", "hard"];
+
+/**
+ * Rich-text ("Word-like") fields for a write.
+ *
+ * When a *_html field is present it is AUTHORITATIVE: it is sanitized, stored, and
+ * the plain-text sibling is regenerated from it. That keeps `question`/`options`/
+ * `solution` tag-free for the consumers that cannot render HTML (the pdf-lib quiz
+ * PDF and the live-quiz payload), and guarantees the two can never drift.
+ *
+ * options_html only applies where the plain `options` is a FLAT string array (MCQ).
+ * `match` ({left,right}) and `passage` (sub-question objects) keep their own shapes.
+ *
+ * @returns {{question_html?, question?, solution_html?, solution?, options_html?, optionsPlain?}}
+ */
+function resolveRichFields(body, type) {
+  const out = {};
+
+  const qHtml = sanitizeQuestionHtml(body.question_html);
+  if (qHtml) {
+    out.question_html = qHtml;
+    out.question = htmlToPlain(qHtml);
+  }
+
+  const sHtml = sanitizeQuestionHtml(body.solution_html);
+  if (sHtml) {
+    out.solution_html = sHtml;
+    out.solution = htmlToPlain(sHtml);
+  }
+
+  if (type !== "passage" && type !== "match") {
+    const oHtml = sanitizeOptionsHtml(body.options_html);
+    if (oHtml && oHtml.length) {
+      out.options_html = JSON.stringify(oHtml);
+      out.optionsPlain = optionsHtmlToPlain(oHtml); // flat string[] — never objects
+    }
+  }
+
+  return out;
+}
 
 function normalizeDifficultyValue(d) {
   if (d == null || d === "") return "medium";
@@ -174,8 +219,14 @@ exports.addQuestion = async (req, res) => {
       difficulty,
     } = req.body;
 
+        // Rich mode sends question_html and no plain `question` — derive the plain
+        // mirror first so the required-field check below sees it.
+        const rich = resolveRichFields(req.body, type);
+        const questionText = rich.question ?? question;
+        const solutionText = rich.solution ?? solution;
+
         // Validate required fields (answer is optional)
-        if (!subject_title_id || !subject_id || !standardLevel || !board_id || !question || !type || !marks) {
+        if (!subject_title_id || !subject_id || !standardLevel || !board_id || !questionText || !type || !marks) {
             return res.status(400).json({
               error: "Missing required fields",
               required: ["subject_title_id", "subject_id", "standard", "board_id", "question", "type", "marks"]
@@ -223,6 +274,9 @@ exports.addQuestion = async (req, res) => {
             const result = validatePassageOptions(opts);
             if (!result.valid) return res.status(400).json({ error: result.error });
             formattedOptions = JSON.stringify(result.normalized);
+        } else if (rich.optionsPlain) {
+            // Rich MCQ: options are derived from options_html so the two stay aligned.
+            formattedOptions = JSON.stringify(rich.optionsPlain);
         } else {
             formattedOptions = options ? (Array.isArray(options) ? JSON.stringify(options) : options) : null;
         }
@@ -259,13 +313,17 @@ exports.addQuestion = async (req, res) => {
             standard: standardId,
             board_id,
             chapter_id: chapterIdNum,
-            question,
+            question: questionText,
             answer: answerToStore,
-            solution,
+            solution: solutionText,
             type,
             marks,
             difficulty: difficultyNorm,
             options: formattedOptions,
+            // Rich-text siblings (null when the question was authored in simple mode)
+            question_html: rich.question_html ?? null,
+            options_html: rich.options_html ?? null,
+            solution_html: rich.solution_html ?? null,
             ...imageFields, // image_url, composite_image_url, images, layout, placement, align, dims
         });
 
@@ -274,6 +332,27 @@ exports.addQuestion = async (req, res) => {
         console.error(err);
         res.status(500).json({ error: err.message });
     }
+};
+
+/**
+ * POST /api/question/upload-image  (admin, multipart: `image` + `type`)
+ * Uploads a single image for the rich-text editor and returns its relative URL, so
+ * inline images are referenced by URL instead of being embedded as base64 (which
+ * would bloat every question row and is rejected by the sanitizer).
+ */
+exports.uploadInlineImage = async (req, res) => {
+  try {
+    const file = req.file || (req.files && req.files.image && req.files.image[0]);
+    if (!file) {
+      return res.status(400).json({ error: "No image uploaded (field name: image)" });
+    }
+    const type = req.body.type;
+    const url = `uploads/question/${type}/${file.filename}`;
+    return res.status(201).json({ success: true, url });
+  } catch (err) {
+    console.error("[uploadInlineImage]", err);
+    return res.status(500).json({ error: err.message });
+  }
 };
 
 exports.editQuestion = async (req, res) => {
@@ -357,6 +436,29 @@ exports.editQuestion = async (req, res) => {
           ? (Array.isArray(body.options) ? JSON.stringify(body.options) : body.options)
           : null;
       }
+    }
+
+    // Rich-text body. Applied AFTER the plain fields because *_html is authoritative:
+    // it is sanitized and the plain sibling is regenerated from it, so the two can
+    // never drift (the pdf-lib PDF and live quiz read the plain columns).
+    const rich = resolveRichFields(body, effectiveType);
+    if (rich.question_html) {
+      updates.question_html = rich.question_html;
+      updates.question = rich.question;
+    }
+    if (rich.solution_html) {
+      updates.solution_html = rich.solution_html;
+      updates.solution = rich.solution;
+    }
+    if (rich.options_html) {
+      updates.options_html = rich.options_html;
+      updates.options = JSON.stringify(rich.optionsPlain);
+    }
+    // Switching back to the simple editor drops the rich bodies; plain text remains.
+    if (body.clear_rich === "true" || body.clear_rich === true) {
+      updates.question_html = null;
+      updates.options_html = null;
+      updates.solution_html = null;
     }
 
     const effectiveTypeForImage = body.type || existingQuestion.type;
@@ -578,6 +680,9 @@ exports.getAllQuestions = async (req, res) => {
         "type",
         "difficulty",
         "options",
+        "question_html",
+        "options_html",
+        "solution_html",
         "image_url",
         "images",
         "image_layout",
@@ -656,6 +761,20 @@ exports.getAllQuestions = async (req, res) => {
         type: questionData.type,
         difficulty: normalizeDifficultyValue(questionData.difficulty),
         options: parsedOptions,
+        // Rich-text bodies (null for questions authored in simple mode). Clients that
+        // can render HTML prefer these; everything else falls back to the plain fields.
+        question_html: questionData.question_html || null,
+        solution_html: questionData.solution_html || null,
+        options_html: (() => {
+          if (!questionData.options_html) return null;
+          try {
+            return typeof questionData.options_html === "string"
+              ? JSON.parse(questionData.options_html)
+              : questionData.options_html;
+          } catch {
+            return null;
+          }
+        })(),
         marks: questionData.marks, // Already an integer, no need to parse
         board_id: questionData.board_id,
         subject: q.subject ? {

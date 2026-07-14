@@ -67,10 +67,40 @@ function compositeX(align, width, contentWidth) {
   return left;
 }
 
-/** Sanitize text for PDF (remove control chars, limit length). */
+/**
+ * Characters that rich-text authoring commonly introduces but StandardFonts.Helvetica
+ * (WinAnsi) cannot encode — drawText() THROWS on these, which would fail the whole PDF.
+ * Map them to safe ASCII equivalents.
+ */
+const TRANSLITERATE = [
+  [/[‘’‚‛]/g, "'"],   // smart single quotes
+  [/[“”„‟]/g, '"'],   // smart double quotes
+  [/[‐-―]/g, '-'],              // hyphens / en / em dashes
+  [/…/g, '...'],                     // ellipsis
+  [/[  -​]/g, ' '],        // nbsp + exotic spaces
+  [/×/g, 'x'],                       // ×
+  [/÷/g, '/'],                       // ÷
+  [/−/g, '-'],                       // minus sign
+  [/≤/g, '<='],                      // ≤
+  [/≥/g, '>='],                      // ≥
+  [/≠/g, '!='],                      // ≠
+  [/°/g, ' deg'],                    // °
+  [/√/g, 'sqrt'],                    // √
+  [/π/g, 'pi'],                      // π
+  [/•/g, '-'],                       // bullet
+];
+
+/**
+ * Sanitize text for PDF: strip control chars, transliterate to WinAnsi-safe ASCII,
+ * drop anything still unencodable, and cap the length.
+ */
 function sanitize(text) {
   if (text == null || typeof text !== 'string') return '';
-  return text.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '').slice(0, 2000).trim();
+  let out = text.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
+  for (const [re, rep] of TRANSLITERATE) out = out.replace(re, rep);
+  // Anything left outside Latin-1 would throw in Helvetica — drop it rather than crash.
+  out = out.replace(/[^\x20-\x7E¡-ÿ\n]/g, '');
+  return out.slice(0, 2000).trim();
 }
 
 /** Wrap text into lines that fit within maxWidth (approx char width = fontSize * 0.5). */
@@ -137,7 +167,7 @@ async function generateQuizPaperPdf(paper, questions, branding = {}) {
   const black = rgb(0, 0, 0);
   const gray = rgb(0.35, 0.35, 0.4);
 
-  let page = pdfDoc.addPage(PAGE_WIDTH, PAGE_HEIGHT);
+  let page = pdfDoc.addPage([PAGE_WIDTH, PAGE_HEIGHT]);
   const contentWidth = PAGE_WIDTH - MARGIN * 2;
   let y = PAGE_HEIGHT - MARGIN;
 
@@ -191,7 +221,7 @@ async function generateQuizPaperPdf(paper, questions, branding = {}) {
     const needed = totalLines * LINE_HEIGHT + 10 + (composite ? composite.height + 8 : 0);
 
     if (y - needed < MARGIN) {
-      page = pdfDoc.addPage(PAGE_WIDTH, PAGE_HEIGHT);
+      page = pdfDoc.addPage([PAGE_WIDTH, PAGE_HEIGHT]);
       y = PAGE_HEIGHT - MARGIN;
     }
 
@@ -251,7 +281,7 @@ async function generateAnswerKeyPdf(paper, questions, branding = {}) {
   const gray = rgb(0.35, 0.35, 0.4);
   const green = rgb(0, 0.5, 0);
 
-  let page = pdfDoc.addPage(PAGE_WIDTH, PAGE_HEIGHT);
+  let page = pdfDoc.addPage([PAGE_WIDTH, PAGE_HEIGHT]);
   const contentWidth = PAGE_WIDTH - MARGIN * 2;
   let y = PAGE_HEIGHT - MARGIN;
 
@@ -282,7 +312,7 @@ async function generateAnswerKeyPdf(paper, questions, branding = {}) {
     const lines = wrapText(font, line, BODY_SIZE, contentWidth);
     const needed = lines.length * LINE_HEIGHT + 4;
     if (y - needed < MARGIN) {
-      page = pdfDoc.addPage(PAGE_WIDTH, PAGE_HEIGHT);
+      page = pdfDoc.addPage([PAGE_WIDTH, PAGE_HEIGHT]);
       y = PAGE_HEIGHT - MARGIN;
     }
     for (const l of lines) {
@@ -319,7 +349,7 @@ async function generateOmrSheetPdf(paper, questions, branding = {}) {
   const black = rgb(0, 0, 0);
   const gray = rgb(0.4, 0.4, 0.4);
 
-  const page = pdfDoc.addPage(PAGE_WIDTH, PAGE_HEIGHT);
+  const page = pdfDoc.addPage([PAGE_WIDTH, PAGE_HEIGHT]);
   const contentWidth = PAGE_WIDTH - MARGIN * 2;
   let y = PAGE_HEIGHT - MARGIN;
 

@@ -7,6 +7,7 @@ const {
   getAllQuestions,
   getQuestionStats,
   questionAnalysis,
+  uploadInlineImage,
 } = require("../controllers/questionController");
 const authMiddleware = require("../middlewares/authMiddleware");
 const verifyToken = require("../middlewares/verifyToken");
@@ -22,6 +23,14 @@ const questionUpload = upload.fields([
   { name: "images[]", maxCount: 20 },
   { name: "images", maxCount: 20 },
 ]);
+
+// Inline image upload for the rich-text editor (returns a URL to embed in question_html).
+router.post(
+  "/upload-image",
+  authMiddleware.verifyAdmin,
+  upload.single("image"),
+  uploadInlineImage
+);
 
 router.post("/add", authMiddleware.verifyAdmin, questionUpload, addQuestion);
 router.put("/edit/:id", authMiddleware.verifyAdmin, questionUpload, editQuestion);
