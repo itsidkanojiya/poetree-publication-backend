@@ -336,6 +336,74 @@ async function generateAnswerKeyPdf(paper, questions, branding = {}) {
 }
 
 /**
+ * Generate an "Answers & Solutions" PDF: each question with its options, the
+ * correct answer, and the full solution/explanation text. Lines paginate
+ * individually so a long solution flows across pages instead of overflowing.
+ * @param {object} paper
+ * @param {array} questions
+ * @param {{ schoolName?, address? }} branding
+ * @returns {Promise<Buffer>}
+ */
+async function generateAnswerSolutionPdf(paper, questions, branding = {}) {
+  const pdfDoc = await PDFDocument.create();
+  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const bold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+  const black = rgb(0, 0, 0);
+  const gray = rgb(0.35, 0.35, 0.4);
+  const green = rgb(0, 0.5, 0);
+
+  let page = pdfDoc.addPage([PAGE_WIDTH, PAGE_HEIGHT]);
+  const contentWidth = PAGE_WIDTH - MARGIN * 2;
+  let y = PAGE_HEIGHT - MARGIN;
+
+  // Draw one line, adding a page first when there is no room left.
+  const draw = (text, { x = MARGIN, size = BODY_SIZE, f = font, color = black } = {}) => {
+    if (y - LINE_HEIGHT < MARGIN) {
+      page = pdfDoc.addPage([PAGE_WIDTH, PAGE_HEIGHT]);
+      y = PAGE_HEIGHT - MARGIN;
+    }
+    page.drawText(text, { x, y, size, font: f, color });
+    y -= LINE_HEIGHT;
+  };
+
+  const schoolName = sanitize(branding.schoolName || paper.school_name || 'School');
+  const title = sanitize(paper.paper_title || 'Quiz') + ' — Answers & Solutions';
+  draw(schoolName.toUpperCase(), { size: TITLE_SIZE, f: bold });
+  draw(title, { size: TITLE_SIZE, f: bold });
+  y -= LINE_HEIGHT * 0.5;
+
+  for (let i = 0; i < questions.length; i++) {
+    const q = questions[i];
+    const ans = getAnswerLabel(q);
+    const opts = getOptionsList(q);
+
+    // Question
+    for (const l of wrapText(font, `${i + 1}. ${q.question || ''}`, BODY_SIZE, contentWidth)) {
+      draw(l, { f: bold });
+    }
+    // Options
+    opts.forEach((o, j) => {
+      for (const l of wrapText(font, `${String.fromCharCode(65 + j)}. ${sanitize(o)}`, OPTION_SIZE, contentWidth - 16)) {
+        draw(l, { x: MARGIN + 12, size: OPTION_SIZE });
+      }
+    });
+    // Answer
+    draw(`Answer: ${ans != null ? ans : '—'}`, { x: MARGIN + 12, size: OPTION_SIZE, f: bold, color: green });
+    // Solution
+    const solution = sanitize(q.solution || '');
+    if (solution) {
+      for (const l of wrapText(font, `Solution: ${solution}`, OPTION_SIZE, contentWidth - 16)) {
+        draw(l, { x: MARGIN + 12, size: OPTION_SIZE, color: gray });
+      }
+    }
+    y -= 8;
+  }
+
+  const bytes = await pdfDoc.save();
+  return Buffer.from(bytes);
+}
+
+/**
  * Generate OMR-style sheet PDF (bubbles for each question × option).
  * @param {object} paper
  * @param {array} questions
@@ -424,5 +492,6 @@ async function generateOmrSheetPdf(paper, questions, branding = {}) {
 module.exports = {
   generateQuizPaperPdf,
   generateAnswerKeyPdf,
+  generateAnswerSolutionPdf,
   generateOmrSheetPdf,
 };

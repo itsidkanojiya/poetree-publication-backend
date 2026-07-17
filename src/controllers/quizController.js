@@ -257,7 +257,7 @@ async function loadQuizForPdf(req, res) {
       where: { question_id: { [Op.in]: ids } },
       order: [['question_id', 'ASC']],
       attributes: [
-        'question_id', 'question', 'answer', 'options', 'marks',
+        'question_id', 'question', 'answer', 'solution', 'options', 'marks',
         'composite_image_url', 'composite_width', 'composite_height', 'image_placement', 'image_align',
       ],
     });
@@ -312,6 +312,24 @@ exports.getAnswerKeyPdf = async (req, res) => {
   } catch (err) {
     console.error('[quiz getAnswerKeyPdf]', err);
     res.status(500).json({ success: false, message: 'Error generating answer key PDF', error: err.message });
+  }
+};
+
+/**
+ * GET /api/quiz/:paperId/answer-solution — answers + solutions PDF.
+ */
+exports.getAnswerSolutionPdf = async (req, res) => {
+  try {
+    const data = await loadQuizForPdf(req, res);
+    if (!data) return;
+
+    const buffer = await quizPdfService.generateAnswerSolutionPdf(data.paper, data.questions);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="quiz-${req.params.paperId}-answer-solution.pdf"`);
+    res.send(buffer);
+  } catch (err) {
+    console.error('[quiz getAnswerSolutionPdf]', err);
+    res.status(500).json({ success: false, message: 'Error generating answer + solution PDF', error: err.message });
   }
 };
 

@@ -186,32 +186,50 @@ SubjectTitle.hasMany(Question, { foreignKey: "board_id" });
  * Missing "type" is treated as "short" (backward compatible).
  * @returns {{ valid: boolean, error?: string, normalized?: array }}
  */
+const PASSAGE_SUB_TYPES = ["mcq", "short", "blank", "truefalse"];
+
 function validatePassageOptions(options) {
   if (!Array.isArray(options)) return { valid: false, error: "Passage options must be an array" };
   const normalized = [];
   for (let i = 0; i < options.length; i++) {
     const item = options[i];
     if (!item || typeof item !== "object") return { valid: false, error: `Passage option ${i + 1} must be an object` };
-    const type = item.type === "mcq" ? "mcq" : "short"; // no type or "short" -> short
+    const type = PASSAGE_SUB_TYPES.includes(item.type) ? item.type : "short";
+
+    // Rich ("Word-like") sub-question prompt. When present it is the source of
+    // truth: sanitize it and regenerate the plain-text mirror stored in `question`.
+    const qHtml = sanitizeQuestionHtml(item.question_html);
+    const plainQuestion = qHtml
+      ? htmlToPlain(qHtml)
+      : typeof item.question === "string"
+      ? String(item.question).trim()
+      : "";
+
     if (type === "mcq") {
-      if (typeof item.question !== "string" || !Array.isArray(item.options))
-        return { valid: false, error: `Passage MCQ item ${i + 1} must have "question" (string) and "options" (array)` };
+      if (!qHtml && typeof item.question !== "string")
+        return { valid: false, error: `Passage MCQ item ${i + 1} must have "question" (string)` };
+      if (!Array.isArray(item.options))
+        return { valid: false, error: `Passage MCQ item ${i + 1} must have "options" (array)` };
       if (item.answer === undefined || item.answer === null)
         return { valid: false, error: `Passage MCQ item ${i + 1} must have "answer" (1-based index string)` };
-      normalized.push({
+      const entry = {
         type: "mcq",
-        question: String(item.question).trim(),
+        question: plainQuestion,
         options: item.options.map((o) => String(o)),
         answer: item.answer != null ? String(item.answer) : "",
-      });
+      };
+      if (qHtml) entry.question_html = qHtml;
+      normalized.push(entry);
     } else {
-      if (typeof item.question !== "string")
-        return { valid: false, error: `Passage short-answer item ${i + 1} must have "question" (string)` };
-      normalized.push({
-        type: "short",
-        question: String(item.question).trim(),
+      if (!qHtml && typeof item.question !== "string")
+        return { valid: false, error: `Passage item ${i + 1} must have "question" (string)` };
+      const entry = {
+        type,
+        question: plainQuestion,
         answer: item.answer != null ? String(item.answer).trim() : "",
-      });
+      };
+      if (qHtml) entry.question_html = qHtml;
+      normalized.push(entry);
     }
   }
   return { valid: true, normalized };
