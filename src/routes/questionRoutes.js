@@ -5,6 +5,8 @@ const {
   deleteQuestion,
   bulkDeleteQuestions,
   getAllQuestions,
+  getQuestionsByIds,
+  getQuestionById,
   getQuestionStats,
   questionAnalysis,
   uploadInlineImage,
@@ -37,7 +39,12 @@ router.put("/edit/:id", authMiddleware.verifyAdmin, questionUpload, editQuestion
 router.delete("/delete/:id", authMiddleware.verifyAdmin, deleteQuestion);
 router.post("/bulk-delete", authMiddleware.verifyAdmin, bulkDeleteQuestions);
 router.get("/", getAllQuestions);
+// Fetch only specific questions (paper View/Edit/Export) — avoids downloading the bank.
+router.post("/by-ids", getQuestionsByIds);
 router.get("/stats", verifyToken, getQuestionStats);
 router.get("/analysis", questionAnalysis);
+// Full single question (incl editor-only fields). MUST stay after the literal GET
+// routes above so it never shadows /stats or /analysis.
+router.get("/:id", getQuestionById);
 
 module.exports = router;

@@ -599,14 +599,103 @@ exports.bulkDeleteQuestions = async (req, res) => {
   }
 };
 
+// Columns needed to RENDER a question (paper/preview). Deliberately excludes the
+// editor-only heavy columns `image_layout` (fabric JSON, can be MB) and `images`.
+const QUESTION_RENDER_ATTRS = [
+  "question_id", "subject_id", "subject_title_id", "standard", "chapter_id",
+  "question", "answer", "solution", "type", "difficulty", "options",
+  "question_html", "options_html", "solution_html",
+  "image_url", "composite_image_url", "composite_width", "composite_height",
+  "image_placement", "image_align", "marks", "board_id",
+];
+// Full set, incl the editor-only columns — used only by the single-question detail.
+const QUESTION_FULL_ATTRS = [...QUESTION_RENDER_ATTRS, "images", "image_layout"];
+
+const QUESTION_INCLUDES = [
+  { model: Subject, as: "subject", attributes: ["subject_id", "subject_name"] },
+  { model: SubjectTitle, as: "subject_title", attributes: ["subject_title_id", "title_name"] },
+  { model: Boards, as: "board", attributes: ["board_id", "board_name"] },
+  { model: Chapter, as: "chapter", attributes: ["chapter_id", "chapter_name"], required: false },
+];
+
+/**
+ * Shape a Question row for API responses. `includeEditorFields` adds the heavy,
+ * editor-only columns (image_layout, images) — omit them for list/paper-render
+ * responses so we don't ship megabytes of fabric JSON per row.
+ */
+function mapQuestionRow(q, baseUrl, { includeEditorFields = false } = {}) {
+  const d = typeof q.toJSON === "function" ? q.toJSON() : q;
+
+  let parsedOptions = null;
+  if (d.options) {
+    try {
+      parsedOptions = typeof d.options === "string" ? JSON.parse(d.options) : d.options;
+    } catch { parsedOptions = d.options; }
+  }
+
+  let answerOut = d.answer;
+  if (d.type === "passage" && typeof d.answer === "string" && d.answer.trim().startsWith("{")) {
+    try { answerOut = JSON.parse(d.answer); } catch { /* keep raw string */ }
+  }
+
+  let optionsHtmlOut = null;
+  if (d.options_html) {
+    try {
+      optionsHtmlOut = typeof d.options_html === "string" ? JSON.parse(d.options_html) : d.options_html;
+    } catch { optionsHtmlOut = null; }
+  }
+
+  const out = {
+    question_id: d.question_id,
+    subject_id: d.subject_id,
+    subject_title_id: d.subject_title_id,
+    standard: d.standard,
+    chapter_id: d.chapter_id,
+    question: d.question,
+    answer: answerOut,
+    solution: d.solution,
+    type: d.type,
+    difficulty: normalizeDifficultyValue(d.difficulty),
+    options: parsedOptions,
+    question_html: d.question_html || null,
+    solution_html: d.solution_html || null,
+    options_html: optionsHtmlOut,
+    marks: d.marks,
+    board_id: d.board_id,
+    subject: d.subject ? { subject_id: d.subject.subject_id, subject_name: d.subject.subject_name } : null,
+    subject_title: d.subject_title ? { subject_title_id: d.subject_title.subject_title_id, title_name: d.subject_title.title_name } : null,
+    board: d.board ? { board_id: d.board.board_id, board_name: d.board.board_name } : null,
+    chapter: d.chapter ? { chapter_id: d.chapter.chapter_id, chapter_name: d.chapter.chapter_name } : null,
+    image_url: d.image_url ? `${baseUrl}/${d.image_url}` : null,
+    composite_image_url: d.composite_image_url ? `${baseUrl}/${d.composite_image_url}` : null,
+    composite_width: d.composite_width ?? null,
+    composite_height: d.composite_height ?? null,
+    image_placement: d.image_placement || null,
+    image_align: d.image_align || null,
+  };
+
+  if (includeEditorFields) {
+    out.images = (() => {
+      if (!d.images) return [];
+      try {
+        const arr = JSON.parse(d.images);
+        return Array.isArray(arr) ? arr.filter(Boolean).map((p) => `${baseUrl}/${p}`) : [];
+      } catch { return []; }
+    })();
+    out.image_layout = d.image_layout || null;
+  }
+
+  return out;
+}
+
 exports.getAllQuestions = async (req, res) => {
   try {
-    const { 
-      subject_id, 
+    const {
+      subject_id,
       subject_title_id,
-      standard, 
-      board_id, 
-      type, 
+      standard,
+      board_id,
+      type,
       marks,
       chapter_id,
       difficulty,
@@ -715,166 +804,84 @@ exports.getAllQuestions = async (req, res) => {
     console.log('[getAllQuestions] Query filters:', JSON.stringify(query, null, 2));
 
     const questions = await Question.findAll({
-      attributes: [
-        "question_id",
-        "subject_id",
-        "subject_title_id",
-        "standard",
-        "chapter_id",
-        "question",
-        "answer",
-        "solution",
-        "type",
-        "difficulty",
-        "options",
-        "question_html",
-        "options_html",
-        "solution_html",
-        "image_url",
-        "images",
-        "image_layout",
-        "composite_image_url",
-        "composite_width",
-        "composite_height",
-        "image_placement",
-        "image_align",
-        "marks",
-        "board_id"
-      ],
-      where: query, // Apply filters here
-      include: [
-        {
-          model: Subject,
-          as: "subject",
-          attributes: ["subject_id", "subject_name"],
-        },
-        {
-          model: SubjectTitle,
-          as: "subject_title",
-          attributes: ["subject_title_id", "title_name"],
-        },
-        {
-          model: Boards,
-          as: "board",
-          attributes: ["board_id", "board_name"],
-        },
-        {
-          model: Chapter,
-          as: "chapter",
-          attributes: ["chapter_id", "chapter_name"],
-          required: false,
-        },
-      ],
+      attributes: QUESTION_RENDER_ATTRS, // no image_layout/images — keeps list responses light
+      where: query,
+      include: QUESTION_INCLUDES,
     });
 
     const baseUrl = `${req.protocol}://${req.get("host")}`;
-
-    // Flatten the response and ensure full image URLs
-    const formattedQuestions = questions.map((q) => {
-      const questionData = q.toJSON();
-      
-      // Parse options if it's a JSON string
-      let parsedOptions = null;
-      if (questionData.options) {
-        try {
-          parsedOptions = typeof questionData.options === 'string' 
-            ? JSON.parse(questionData.options) 
-            : questionData.options;
-        } catch (e) {
-          console.warn('[getAllQuestions] Failed to parse options:', e.message);
-          parsedOptions = questionData.options;
-        }
-      }
-
-      // Passage: answer is stored as JSON object string; return parsed object so frontend can render
-      let answerOut = questionData.answer;
-      if (questionData.type === 'passage' && typeof questionData.answer === 'string' && questionData.answer.trim().startsWith('{')) {
-        try {
-          answerOut = JSON.parse(questionData.answer);
-        } catch (e) {
-          answerOut = questionData.answer;
-        }
-      }
-
-      return {
-        question_id: questionData.question_id,
-        subject_id: questionData.subject_id,
-        subject_title_id: questionData.subject_title_id,
-        standard: questionData.standard,
-        chapter_id: questionData.chapter_id,
-        question: questionData.question,
-        answer: answerOut,
-        solution: questionData.solution,
-        type: questionData.type,
-        difficulty: normalizeDifficultyValue(questionData.difficulty),
-        options: parsedOptions,
-        // Rich-text bodies (null for questions authored in simple mode). Clients that
-        // can render HTML prefer these; everything else falls back to the plain fields.
-        question_html: questionData.question_html || null,
-        solution_html: questionData.solution_html || null,
-        options_html: (() => {
-          if (!questionData.options_html) return null;
-          try {
-            return typeof questionData.options_html === "string"
-              ? JSON.parse(questionData.options_html)
-              : questionData.options_html;
-          } catch {
-            return null;
-          }
-        })(),
-        marks: questionData.marks, // Already an integer, no need to parse
-        board_id: questionData.board_id,
-        subject: q.subject ? {
-          subject_id: q.subject.subject_id,
-          subject_name: q.subject.subject_name
-        } : null,
-        subject_title: q.subject_title ? {
-          subject_title_id: q.subject_title.subject_title_id,
-          title_name: q.subject_title.title_name
-        } : null,
-        board: q.board ? {
-          board_id: q.board.board_id,
-          board_name: q.board.board_name
-        } : null,
-        chapter: q.chapter ? {
-          chapter_id: q.chapter.chapter_id,
-          chapter_name: q.chapter.chapter_name
-        } : null,
-        image_url: questionData.image_url ? `${baseUrl}/${questionData.image_url}` : null,
-        // Fabric composite image block
-        composite_image_url: questionData.composite_image_url
-          ? `${baseUrl}/${questionData.composite_image_url}`
-          : null,
-        images: (() => {
-          if (!questionData.images) return [];
-          try {
-            const arr = JSON.parse(questionData.images);
-            return Array.isArray(arr)
-              ? arr.filter(Boolean).map((p) => `${baseUrl}/${p}`)
-              : [];
-          } catch {
-            return [];
-          }
-        })(),
-        image_layout: questionData.image_layout || null,
-        composite_width: questionData.composite_width ?? null,
-        composite_height: questionData.composite_height ?? null,
-        image_placement: questionData.image_placement || null,
-        image_align: questionData.image_align || null,
-      };
-    });
+    const formattedQuestions = questions.map((q) => mapQuestionRow(q, baseUrl));
 
     res.status(200).json({
       success: true,
       count: formattedQuestions.length,
-      questions: formattedQuestions
+      questions: formattedQuestions,
     });
   } catch (err) {
     console.error('[getAllQuestions] Error:', err);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
-      error: err.message 
+      error: err.message
     });
+  }
+};
+
+/**
+ * POST /api/question/by-ids  { ids: number[] }
+ * Returns only the requested questions (render columns, no editor-only fields).
+ * Used by paper View/Edit/Export so they never download the whole bank.
+ */
+exports.getQuestionsByIds = async (req, res) => {
+  try {
+    const raw = Array.isArray(req.body?.ids) ? req.body.ids : [];
+    const ids = [...new Set(raw.map((x) => parseInt(x, 10)).filter((x) => !isNaN(x)))];
+    if (ids.length === 0) {
+      return res.status(400).json({ success: false, error: "ids must be a non-empty array" });
+    }
+    if (ids.length > 500) {
+      return res.status(400).json({ success: false, error: "Too many ids (max 500)" });
+    }
+
+    const questions = await Question.findAll({
+      attributes: QUESTION_RENDER_ATTRS,
+      where: { question_id: { [Op.in]: ids } },
+      include: QUESTION_INCLUDES,
+    });
+
+    const baseUrl = `${req.protocol}://${req.get("host")}`;
+    const formatted = questions.map((q) => mapQuestionRow(q, baseUrl));
+
+    res.status(200).json({ success: true, count: formatted.length, questions: formatted });
+  } catch (err) {
+    console.error('[getQuestionsByIds] Error:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+/**
+ * GET /api/question/:id
+ * Full single question INCLUDING the editor-only fields (image_layout, images),
+ * so the admin editor can rehydrate the fabric composite. Registered after the
+ * literal GET routes so it never shadows /stats or /analysis.
+ */
+exports.getQuestionById = async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (isNaN(id)) {
+      return res.status(400).json({ success: false, error: "Invalid question id" });
+    }
+    const q = await Question.findByPk(id, {
+      attributes: QUESTION_FULL_ATTRS,
+      include: QUESTION_INCLUDES,
+    });
+    if (!q) {
+      return res.status(404).json({ success: false, error: "Question not found" });
+    }
+    const baseUrl = `${req.protocol}://${req.get("host")}`;
+    res.status(200).json({ success: true, question: mapQuestionRow(q, baseUrl, { includeEditorFields: true }) });
+  } catch (err) {
+    console.error('[getQuestionById] Error:', err);
+    res.status(500).json({ success: false, error: err.message });
   }
 };
 
