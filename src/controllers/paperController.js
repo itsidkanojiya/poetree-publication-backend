@@ -1325,9 +1325,13 @@ exports.smartPropose = async (req, res) => {
 };
 
 /**
- * GET /api/papers/marks-breakdown?subject_title_id=&board_id=&standard=
+ * GET /api/papers/marks-breakdown?subject_title_id=&board_id=&standard=&chapter_ids=1,2,3
  * Per question-type: how many questions exist and their marks (unit/avg/min/max), so the
  * client can show a live estimated total (count × unit_marks) before generating a paper.
+ *
+ * `chapter_ids` (optional, comma-separated) scopes the counts to just those chapters, so
+ * the "N available" figures match the chapters actually chosen for the paper. Omitted =
+ * every chapter of the subject title.
  */
 exports.marksBreakdown = async (req, res) => {
     try {
@@ -1341,8 +1345,16 @@ exports.marksBreakdown = async (req, res) => {
             });
         }
 
+        const chapterIds = String(req.query.chapter_ids || '')
+            .split(',')
+            .map((s) => parseInt(s, 10))
+            .filter((n) => !isNaN(n));
+
+        const where = { subject_title_id, board_id, standard };
+        if (chapterIds.length > 0) where.chapter_id = { [Op.in]: chapterIds };
+
         const rows = await Question.findAll({
-            where: { subject_title_id, board_id, standard },
+            where,
             attributes: [
                 'type',
                 [fn('COUNT', col('question_id')), 'available'],
