@@ -9,17 +9,11 @@
 
 const DIFFICULTIES = ['easy', 'medium', 'hard'];
 
-/** Canonical section keys — request must include all eight; sum === 100. */
-const SECTION_WEIGHT_KEYS = [
-  'mcq',
-  'blank',
-  'true_false',
-  'onetwo',
-  'short',
-  'long',
-  'passage',
-  'match',
-];
+/**
+ * Canonical section keys (shared constant). Missing keys default to 0 so older
+ * clients that don't know the newer types keep working; sum must be 100.
+ */
+const { SECTION_WEIGHT_KEYS } = require('../constants/questionTypes');
 
 /**
  * Map DB/API type to canonical key (align with frontend normalizeQuestionType).
@@ -53,10 +47,9 @@ function validateSectionWeights(section_weights) {
   }
   let sum = 0;
   for (const k of SECTION_WEIGHT_KEYS) {
-    if (section_weights[k] == null) {
-      errors.push(`Missing section_weights.${k}`);
-      continue;
-    }
+    // Missing key => 0. Required for backward compatibility: clients built before a
+    // new type existed simply omit it, and must not be rejected.
+    if (section_weights[k] == null) continue;
     const v = Number(section_weights[k]);
     if (Number.isNaN(v) || v < 0) {
       errors.push(`Invalid section_weights.${k}`);

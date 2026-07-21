@@ -9,6 +9,7 @@ const {
   SECTION_WEIGHT_KEYS,
 } = require("../services/smartPaperPropose");
 const { resolveStandardId } = require("../helpers/resolveStandardId");
+const { DB_QUESTION_TYPES } = require("../constants/questionTypes");
 const {
   sanitizeQuestionHtml,
   sanitizeOptionsHtml,
@@ -306,8 +307,8 @@ exports.addQuestion = async (req, res) => {
         if (chapter.subject_title_id !== parseInt(subject_title_id, 10)) {
             return res.status(400).json({ error: "Chapter does not belong to the selected subject title" });
         }
-        // Validate question type
-        if (!['mcq', 'short', 'long', 'blank', 'onetwo', 'truefalse', 'passage', 'match'].includes(type)) {
+        // Validate question type (shared allow-list — keep in sync with upload.js)
+        if (!DB_QUESTION_TYPES.includes(type)) {
             return res.status(400).json({ error: "Invalid question type" });
         }
 

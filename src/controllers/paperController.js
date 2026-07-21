@@ -19,6 +19,109 @@ const { Op, fn, col } = require('sequelize');
 const path = require("path");
 const fs = require("fs");
 
+/** canonical type -> legacy papers column (only 6 types ever had one). */
+const LEGACY_MARKS_COLUMNS = {
+    mcq: 'marks_mcq',
+    short: 'marks_short',
+    long: 'marks_long',
+    blank: 'marks_blank',
+    onetwo: 'marks_onetwo',
+    true_false: 'marks_truefalse',
+};
+
+/**
+ * Resolve per-type marks for a paper write.
+ *
+ * Accepts the new `marks_by_type` (JSON string or object keyed by canonical type) and
+ * falls back to the legacy `marks_*` body fields. Fixes a long-standing bug: the client
+ * always sent marks_passage/marks_match but no such columns exist, so those marks were
+ * dropped and left out of total_marks. Everything now lands in marks_by_type, the 6
+ * legacy columns are still written for backward compatibility, and total_marks covers
+ * EVERY type. Decimals are preserved (marks can be fractional, e.g. 0.5).
+ *
+ * @returns {{ byType: object, legacy: object, total: number }}
+ */
+/** Per-type marks explicitly present in a request body (explicit 0 is preserved). */
+function marksFromBody(body = {}) {
+    const out = {};
+    const raw = body.marks_by_type;
+    if (raw != null && raw !== '') {
+        try {
+            const o = typeof raw === 'string' ? JSON.parse(raw) : raw;
+            if (o && typeof o === 'object' && !Array.isArray(o)) {
+                for (const k of SECTION_WEIGHT_KEYS) {
+                    if (o[k] != null) out[k] = Number(o[k]) || 0;
+                }
+            }
+        } catch {
+            /* ignore malformed */
+        }
+    }
+    // Legacy per-type fields.
+    for (const [key, field] of Object.entries(LEGACY_MARKS_COLUMNS)) {
+        if (body[field] !== undefined && body[field] !== '') out[key] = Number(body[field]) || 0;
+    }
+    // These two have always been sent but never had a column — this is the bug fix.
+    if (body.marks_passage !== undefined && body.marks_passage !== '') {
+        out.passage = Number(body.marks_passage) || 0;
+    }
+    if (body.marks_match !== undefined && body.marks_match !== '') {
+        out.match = Number(body.marks_match) || 0;
+    }
+    return out;
+}
+
+/** Normalize a per-type marks map into { byType, legacy, total }. */
+function finalizeMarks(map = {}) {
+    const byType = {};
+    let total = 0;
+    for (const k of SECTION_WEIGHT_KEYS) {
+        const v = Number(map[k]) || 0;
+        if (v) byType[k] = v;
+        total += v;
+    }
+    const legacy = {};
+    for (const [key, field] of Object.entries(LEGACY_MARKS_COLUMNS)) {
+        legacy[field] = Number(byType[key]) || 0;
+    }
+    return { byType, legacy, total: Math.round(total * 100) / 100 };
+}
+
+function resolveMarksByType(body = {}) {
+    return finalizeMarks(marksFromBody(body));
+}
+
+/** True when the request supplies any per-type marks at all. */
+function hasMarksInBody(body = {}) {
+    return Object.keys(marksFromBody(body)).length > 0;
+}
+
+/**
+ * Merge incoming marks over what's already stored, so a PARTIAL update doesn't zero
+ * the types it didn't mention. Returns null when the request supplies no marks.
+ */
+function resolveMarksForUpdate(body = {}, existing = {}) {
+    if (!hasMarksInBody(body)) return null;
+    let base = {};
+    if (existing.marks_by_type) {
+        try {
+            const o = typeof existing.marks_by_type === 'string'
+                ? JSON.parse(existing.marks_by_type)
+                : existing.marks_by_type;
+            if (o && typeof o === 'object' && !Array.isArray(o)) base = o;
+        } catch {
+            /* ignore malformed */
+        }
+    }
+    if (Object.keys(base).length === 0) {
+        // Older row with no JSON yet — seed from the legacy columns.
+        for (const [key, field] of Object.entries(LEGACY_MARKS_COLUMNS)) {
+            base[key] = Number(existing[field]) || 0;
+        }
+    }
+    return finalizeMarks({ ...base, ...marksFromBody(body) });
+}
+
 // Define associations
 Paper.belongsTo(SubjectTitle, { 
     foreignKey: 'subject_title_id', 
@@ -157,14 +260,9 @@ exports.addPaper = async (req, res) => {
             logo = user.logo_url;
         }
 
-        // Calculate total marks
-        const marksMcq = parseInt(marks_mcq) || 0;
-        const marksShort = parseInt(marks_short) || 0;
-        const marksLong = parseInt(marks_long) || 0;
-        const marksBlank = parseInt(marks_blank) || 0;
-        const marksOnetwo = parseInt(marks_onetwo) || 0;
-        const marksTruefalse = parseInt(marks_truefalse) || 0;
-        const totalMarks = marksMcq + marksShort + marksLong + marksBlank + marksOnetwo + marksTruefalse;
+        // Per-type marks: covers EVERY type (incl. passage/match, which had no column
+        // and were silently dropped) and preserves decimals.
+        const marks = resolveMarksByType(req.body);
 
         // Create paper entry (school_name, address, logo are now nullable and stored for backward compatibility)
         const paper = await Paper.create({
@@ -185,13 +283,9 @@ exports.addPaper = async (req, res) => {
             board,
             paper_title: paper_title || null, // For templates
             body,
-            marks_mcq: marksMcq,
-            marks_short: marksShort,
-            marks_long: marksLong,
-            marks_blank: marksBlank,
-            marks_onetwo: marksOnetwo,
-            marks_truefalse: marksTruefalse,
-            total_marks: totalMarks
+            ...marks.legacy,
+            marks_by_type: JSON.stringify(marks.byType),
+            total_marks: marks.total
         });
 
         return res.status(201).json({ success: true, message: "Paper added successfully", data: paper });
@@ -384,18 +478,9 @@ exports.updatePaper = async (req, res) => {
             logo = user.logo_url;
         }
 
-        // Calculate total marks if any marks are provided
-        let totalMarks = paper.total_marks || 0;
-        if (marks_mcq !== undefined || marks_short !== undefined || marks_long !== undefined || 
-            marks_blank !== undefined || marks_onetwo !== undefined || marks_truefalse !== undefined) {
-            const marksMcq = marks_mcq !== undefined ? (parseInt(marks_mcq) || 0) : (paper.marks_mcq || 0);
-            const marksShort = marks_short !== undefined ? (parseInt(marks_short) || 0) : (paper.marks_short || 0);
-            const marksLong = marks_long !== undefined ? (parseInt(marks_long) || 0) : (paper.marks_long || 0);
-            const marksBlank = marks_blank !== undefined ? (parseInt(marks_blank) || 0) : (paper.marks_blank || 0);
-            const marksOnetwo = marks_onetwo !== undefined ? (parseInt(marks_onetwo) || 0) : (paper.marks_onetwo || 0);
-            const marksTruefalse = marks_truefalse !== undefined ? (parseInt(marks_truefalse) || 0) : (paper.marks_truefalse || 0);
-            totalMarks = marksMcq + marksShort + marksLong + marksBlank + marksOnetwo + marksTruefalse;
-        }
+        // Per-type marks: merge over what is stored so a partial update does not
+        // zero other types. Covers every type (incl. passage/match); keeps decimals.
+        const marksUpdate = resolveMarksForUpdate(req.body, paper);
 
         // Prepare update data (only include fields that are provided)
         // Note: school_name, address, and logo are always updated from user table
@@ -439,15 +524,10 @@ exports.updatePaper = async (req, res) => {
         if (board !== undefined) updateData.board = board;
         if (paper_title !== undefined) updateData.paper_title = paper_title;
         if (body !== undefined) updateData.body = body;
-        if (marks_mcq !== undefined) updateData.marks_mcq = parseInt(marks_mcq) || 0;
-        if (marks_short !== undefined) updateData.marks_short = parseInt(marks_short) || 0;
-        if (marks_long !== undefined) updateData.marks_long = parseInt(marks_long) || 0;
-        if (marks_blank !== undefined) updateData.marks_blank = parseInt(marks_blank) || 0;
-        if (marks_onetwo !== undefined) updateData.marks_onetwo = parseInt(marks_onetwo) || 0;
-        if (marks_truefalse !== undefined) updateData.marks_truefalse = parseInt(marks_truefalse) || 0;
-        if (marks_mcq !== undefined || marks_short !== undefined || marks_long !== undefined || 
-            marks_blank !== undefined || marks_onetwo !== undefined || marks_truefalse !== undefined) {
-            updateData.total_marks = totalMarks;
+        if (marksUpdate) {
+            Object.assign(updateData, marksUpdate.legacy);
+            updateData.marks_by_type = JSON.stringify(marksUpdate.byType);
+            updateData.total_marks = marksUpdate.total;
         }
 
         // Update the paper
@@ -663,14 +743,9 @@ exports.createTemplate = async (req, res) => {
             logo = logo_url.trim();
         }
 
-        // Calculate total marks
-        const marksMcq = parseInt(marks_mcq) || 0;
-        const marksShort = parseInt(marks_short) || 0;
-        const marksLong = parseInt(marks_long) || 0;
-        const marksBlank = parseInt(marks_blank) || 0;
-        const marksOnetwo = parseInt(marks_onetwo) || 0;
-        const marksTruefalse = parseInt(marks_truefalse) || 0;
-        const totalMarks = marksMcq + marksShort + marksLong + marksBlank + marksOnetwo + marksTruefalse;
+        // Per-type marks: covers EVERY type (incl. passage/match, which had no column
+        // and were silently dropped) and preserves decimals.
+        const marks = resolveMarksByType(req.body);
 
         // Create template entry
         const template = await Paper.create({
@@ -691,13 +766,9 @@ exports.createTemplate = async (req, res) => {
             board,
             paper_title: paper_title || null, // For templates
             body,
-            marks_mcq: marksMcq,
-            marks_short: marksShort,
-            marks_long: marksLong,
-            marks_blank: marksBlank,
-            marks_onetwo: marksOnetwo,
-            marks_truefalse: marksTruefalse,
-            total_marks: totalMarks,
+            ...marks.legacy,
+            marks_by_type: JSON.stringify(marks.byType),
+            total_marks: marks.total,
             is_template: true,
             template_metadata: JSON.stringify(metadata)
         });
@@ -875,18 +946,9 @@ exports.updateTemplate = async (req, res) => {
             }
         }
 
-        // Calculate total marks if any marks are provided
-        let totalMarks = template.total_marks || 0;
-        if (marks_mcq !== undefined || marks_short !== undefined || marks_long !== undefined || 
-            marks_blank !== undefined || marks_onetwo !== undefined || marks_truefalse !== undefined) {
-            const marksMcq = marks_mcq !== undefined ? (parseInt(marks_mcq) || 0) : (template.marks_mcq || 0);
-            const marksShort = marks_short !== undefined ? (parseInt(marks_short) || 0) : (template.marks_short || 0);
-            const marksLong = marks_long !== undefined ? (parseInt(marks_long) || 0) : (template.marks_long || 0);
-            const marksBlank = marks_blank !== undefined ? (parseInt(marks_blank) || 0) : (template.marks_blank || 0);
-            const marksOnetwo = marks_onetwo !== undefined ? (parseInt(marks_onetwo) || 0) : (template.marks_onetwo || 0);
-            const marksTruefalse = marks_truefalse !== undefined ? (parseInt(marks_truefalse) || 0) : (template.marks_truefalse || 0);
-            totalMarks = marksMcq + marksShort + marksLong + marksBlank + marksOnetwo + marksTruefalse;
-        }
+        // Per-type marks: merge over what is stored so a partial update does not
+        // zero other types. Covers every type (incl. passage/match); keeps decimals.
+        const marksUpdate = resolveMarksForUpdate(req.body, template);
 
         // Prepare update data (only include fields that are provided)
         const updateData = {};
@@ -904,15 +966,10 @@ exports.updateTemplate = async (req, res) => {
         if (paper_title !== undefined) updateData.paper_title = paper_title;
         if (body !== undefined) updateData.body = body;
         if (logo_url !== undefined) updateData.logo_url = logo_url && logo_url.trim() !== '' ? logo_url.trim() : null;
-        if (marks_mcq !== undefined) updateData.marks_mcq = parseInt(marks_mcq) || 0;
-        if (marks_short !== undefined) updateData.marks_short = parseInt(marks_short) || 0;
-        if (marks_long !== undefined) updateData.marks_long = parseInt(marks_long) || 0;
-        if (marks_blank !== undefined) updateData.marks_blank = parseInt(marks_blank) || 0;
-        if (marks_onetwo !== undefined) updateData.marks_onetwo = parseInt(marks_onetwo) || 0;
-        if (marks_truefalse !== undefined) updateData.marks_truefalse = parseInt(marks_truefalse) || 0;
-        if (marks_mcq !== undefined || marks_short !== undefined || marks_long !== undefined || 
-            marks_blank !== undefined || marks_onetwo !== undefined || marks_truefalse !== undefined) {
-            updateData.total_marks = totalMarks;
+        if (marksUpdate) {
+            Object.assign(updateData, marksUpdate.legacy);
+            updateData.marks_by_type = JSON.stringify(marksUpdate.byType);
+            updateData.total_marks = marksUpdate.total;
         }
         if (req.file || logo_url !== undefined) updateData.logo = logoPath;
         if (metadata !== null) updateData.template_metadata = JSON.stringify(metadata);
@@ -1082,10 +1139,9 @@ exports.smartPropose = async (req, res) => {
 
             let totalCount = 0;
             for (const k of SECTION_WEIGHT_KEYS) {
-                if (section_question_counts[k] == null) {
-                    countErrors.push(`Missing section_question_counts.${k}`);
-                    continue;
-                }
+                // Missing key => 0. Required for backward compatibility: clients built
+                // before a new type existed simply omit it, and must not be rejected.
+                if (section_question_counts[k] == null) continue;
                 const v = Number(section_question_counts[k]);
                 if (!Number.isFinite(v) || !Number.isInteger(v) || v < 0) {
                     countErrors.push(`Invalid section_question_counts.${k}: must be an integer >= 0`);
@@ -1107,7 +1163,7 @@ exports.smartPropose = async (req, res) => {
             }
 
             for (const k of SECTION_WEIGHT_KEYS) {
-                sectionWeightsNorm[k] = (Number(section_question_counts[k]) / totalCount) * 100;
+                sectionWeightsNorm[k] = ((Number(section_question_counts[k]) || 0) / totalCount) * 100;
             }
         } else {
             const swValidation = validateSectionWeights(section_weights);

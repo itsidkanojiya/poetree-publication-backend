@@ -80,37 +80,44 @@ const Paper = sequelize.define('papers', {
   },
   // Marks breakdown by question type
   marks_mcq: {
-    type: DataTypes.INTEGER,
+    type: DataTypes.DECIMAL(6, 2),
     allowNull: true,
     defaultValue: 0,
   },
   marks_short: {
-    type: DataTypes.INTEGER,
+    type: DataTypes.DECIMAL(6, 2),
     allowNull: true,
     defaultValue: 0,
   },
   marks_long: {
-    type: DataTypes.INTEGER,
+    type: DataTypes.DECIMAL(6, 2),
     allowNull: true,
     defaultValue: 0,
   },
   marks_blank: {
-    type: DataTypes.INTEGER,
+    type: DataTypes.DECIMAL(6, 2),
     allowNull: true,
     defaultValue: 0,
   },
   marks_onetwo: {
-    type: DataTypes.INTEGER,
+    type: DataTypes.DECIMAL(6, 2),
     allowNull: true,
     defaultValue: 0,
   },
   marks_truefalse: {
-    type: DataTypes.INTEGER,
+    type: DataTypes.DECIMAL(6, 2),
     allowNull: true,
     defaultValue: 0,
   },
+  // Per-type marks for EVERY question type, as JSON: { mcq: 10, synonyms: 3, ... }.
+  // The marks_* columns above only ever covered 6 types (no passage, no match), so
+  // those marks were silently dropped. New types go here instead of a column each.
+  marks_by_type: {
+    type: DataTypes.TEXT,
+    allowNull: true,
+  },
   total_marks: {
-    type: DataTypes.INTEGER,
+    type: DataTypes.DECIMAL(6, 2),
     allowNull: true,
     defaultValue: 0,
   },

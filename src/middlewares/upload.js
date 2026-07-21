@@ -1,6 +1,7 @@
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const { DB_QUESTION_TYPES } = require('../constants/questionTypes');
 
 // Function to create a folder dynamically
 const createUploadFolder = (folderPath) => {
@@ -17,7 +18,9 @@ const storage = multer.diskStorage({
         if (req.originalUrl.includes("question")) {
             // Upload Path for Questions (based on question type)
             const type = req.body.type || req.query.type; // Ensure 'type' is available
-            if (!type || !['mcq', 'short', 'long', 'blank', 'onetwo' , 'truefalse', 'passage', 'match'].includes(type)) {
+            // Allow-list comes from the shared constant — this gate runs BEFORE the
+            // controller, so a type missing here breaks image upload for that type.
+            if (!type || !DB_QUESTION_TYPES.includes(type)) {
                 return cb(new Error('Invalid question type'), false);
             }
             uploadPath += `question/${type}`;

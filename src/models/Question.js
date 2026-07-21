@@ -103,8 +103,14 @@ const Question = sequelize.define('questions', {
     allowNull: true,
   },
   marks: {
-    type: DataTypes.INTEGER,
+    // DECIMAL so fractional marks (e.g. 0.5 per word) are possible.
+    // `get` returns a Number — Sequelize hands DECIMAL back as a string otherwise.
+    type: DataTypes.DECIMAL(6, 2),
     allowNull: false,
+    get() {
+      const v = this.getDataValue("marks");
+      return v == null ? v : Number(v);
+    },
   },
 }, {
   tableName: 'questions',
