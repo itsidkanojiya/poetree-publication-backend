@@ -27,7 +27,16 @@ dotenv.config();
     
 
 const app = express();
-// Allow larger request bodies for file uploads (proxy may also need client_max_body_size)v 
+
+// Behind nginx, Express talks plain HTTP, so req.protocol is "http" unless we trust
+// the proxy. ~31 places build absolute URLs as `${req.protocol}://${req.get('host')}`,
+// so every returned file URL came back as http:// — and an https page silently REFUSES
+// to embed an http iframe (mixed content), which is why the answer-sheet/worksheet PDF
+// modal was blank while "Open in new tab" worked. Trusting the first hop makes
+// req.protocol follow X-Forwarded-Proto and emit https:// URLs.
+app.set('trust proxy', 1);
+
+// Allow larger request bodies for file uploads (proxy may also need client_max_body_size)v
 app.use(express.json({ limit: '200mb' }));
 app.use(express.urlencoded({ limit: '200mb', extended: true }));
 app.use(cors());
