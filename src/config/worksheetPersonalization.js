@@ -3,10 +3,10 @@
  * Values can be overridden via environment variables.
  */
 module.exports = {
-  /** Header band height in mm (top of each page) */
-  headerHeightMm: Number(process.env.WORKSHEET_HEADER_HEIGHT_MM) || 28,
-  /** Maximum logo height in mm */
-  logoMaxHeightMm: Number(process.env.WORKSHEET_LOGO_MAX_HEIGHT_MM) || 20,
+  /** Header band height in mm (top of each page) — tall enough to hold the bigger logo */
+  headerHeightMm: Number(process.env.WORKSHEET_HEADER_HEIGHT_MM) || 34,
+  /** Maximum logo height in mm (drawn up to 2x this wide, aspect ratio preserved) */
+  logoMaxHeightMm: Number(process.env.WORKSHEET_LOGO_MAX_HEIGHT_MM) || 30,
   /** Cache TTL in seconds (0 = disable cache) */
   cacheTtlSeconds: Number(process.env.WORKSHEET_PERSONALIZATION_CACHE_TTL) || 600,
   /**

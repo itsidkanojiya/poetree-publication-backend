@@ -224,12 +224,24 @@ function validatePassageOptions(options) {
     } else {
       if (!qHtml && typeof item.question !== "string")
         return { valid: false, error: `Passage item ${i + 1} must have "question" (string)` };
+      // Rich answer (short / fill-in-the-blank): the HTML answer may hold an
+      // uploaded image and/or formatted text. When present it is the source of
+      // truth — sanitize it and regenerate the plain `answer` mirror from it.
+      const aHtml =
+        type === "short" || type === "blank"
+          ? sanitizeQuestionHtml(item.answer_html)
+          : "";
       const entry = {
         type,
         question: plainQuestion,
-        answer: item.answer != null ? String(item.answer).trim() : "",
+        answer: aHtml
+          ? htmlToPlain(aHtml)
+          : item.answer != null
+          ? String(item.answer).trim()
+          : "",
       };
       if (qHtml) entry.question_html = qHtml;
+      if (aHtml) entry.answer_html = aHtml;
       normalized.push(entry);
     }
   }
@@ -273,11 +285,11 @@ exports.addQuestion = async (req, res) => {
         const questionText = rich.question ?? question;
         const solutionText = rich.solution ?? solution;
 
-        // Validate required fields (answer is optional)
-        if (!subject_title_id || !subject_id || !standardLevel || !board_id || !questionText || !type || !marks) {
+        // Validate required fields (question AND answer are both optional now)
+        if (!subject_title_id || !subject_id || !standardLevel || !board_id || !type || !marks) {
             return res.status(400).json({
               error: "Missing required fields",
-              required: ["subject_title_id", "subject_id", "standard", "board_id", "question", "type", "marks"]
+              required: ["subject_title_id", "subject_id", "standard", "board_id", "type", "marks"]
             });
         }
         if (difficulty === undefined || difficulty === null || String(difficulty).trim() === "") {
@@ -361,7 +373,7 @@ exports.addQuestion = async (req, res) => {
             standard: standardId,
             board_id,
             chapter_id: chapterIdNum,
-            question: questionText,
+            question: questionText || "", // optional — store empty string (column is NOT NULL)
             answer: answerToStore,
             solution: solutionText,
             type,
