@@ -47,6 +47,16 @@ function resolveRichFields(body, type) {
     out.solution = htmlToPlain(sHtml);
   }
 
+  // Rich answer HTML only applies to free-text answer types (short/long/etc.),
+  // not to structured answers (mcq index, passage/match objects, true/false).
+  if (!["mcq", "passage", "match", "true&false"].includes(type)) {
+    const aHtml = sanitizeQuestionHtml(body.answer_html);
+    if (aHtml) {
+      out.answer_html = aHtml;
+      out.answer = htmlToPlain(aHtml);
+    }
+  }
+
   if (type !== "passage" && body.options_html != null && body.options_html !== "") {
     let parsed = body.options_html;
     if (typeof parsed === "string") {
@@ -284,6 +294,7 @@ exports.addQuestion = async (req, res) => {
         const rich = resolveRichFields(req.body, type);
         const questionText = rich.question ?? question;
         const solutionText = rich.solution ?? solution;
+        const answerText = rich.answer ?? answer;
 
         // Validate required fields (question AND answer are both optional now)
         if (!subject_title_id || !subject_id || !standardLevel || !board_id || !type || !marks) {
@@ -356,7 +367,7 @@ exports.addQuestion = async (req, res) => {
                 answerToStore = String(answer).trim() || null;
             }
         } else {
-            answerToStore = answer != null ? String(answer).trim() : null;
+            answerToStore = answerText != null ? String(answerText).trim() : null;
         }
 
         // Uploaded image(s): legacy single image, fabric composite PNG, and/or
@@ -384,6 +395,7 @@ exports.addQuestion = async (req, res) => {
             question_html: rich.question_html ?? null,
             options_html: rich.options_html ?? null,
             solution_html: rich.solution_html ?? null,
+            answer_html: rich.answer_html ?? null,
             ...imageFields, // image_url, composite_image_url, images, layout, placement, align, dims
         });
 
@@ -514,11 +526,16 @@ exports.editQuestion = async (req, res) => {
       updates.options_html = rich.options_html;
       updates.options = JSON.stringify(rich.optionsPlain);
     }
+    if (rich.answer_html) {
+      updates.answer_html = rich.answer_html;
+      updates.answer = rich.answer;
+    }
     // Switching back to the simple editor drops the rich bodies; plain text remains.
     if (body.clear_rich === "true" || body.clear_rich === true) {
       updates.question_html = null;
       updates.options_html = null;
       updates.solution_html = null;
+      updates.answer_html = null;
     }
 
     const effectiveTypeForImage = body.type || existingQuestion.type;
@@ -617,7 +634,7 @@ exports.bulkDeleteQuestions = async (req, res) => {
 const QUESTION_RENDER_ATTRS = [
   "question_id", "subject_id", "subject_title_id", "standard", "chapter_id",
   "question", "answer", "solution", "type", "difficulty", "options",
-  "question_html", "options_html", "solution_html",
+  "question_html", "options_html", "solution_html", "answer_html",
   "image_url", "composite_image_url", "composite_width", "composite_height",
   "image_placement", "image_align", "marks", "board_id",
 ];
@@ -672,6 +689,7 @@ function mapQuestionRow(q, baseUrl, { includeEditorFields = false } = {}) {
     options: parsedOptions,
     question_html: d.question_html || null,
     solution_html: d.solution_html || null,
+    answer_html: d.answer_html || null,
     options_html: optionsHtmlOut,
     marks: d.marks,
     board_id: d.board_id,

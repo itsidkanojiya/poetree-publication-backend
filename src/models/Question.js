@@ -69,6 +69,10 @@ const Question = sequelize.define('questions', {
     type: DataTypes.TEXT('long'),
     allowNull: true,
   },
+  answer_html: {
+    type: DataTypes.TEXT('long'),
+    allowNull: true,
+  },
   image_url: {
     type: DataTypes.STRING,  // Make sure this field exists
     allowNull: true

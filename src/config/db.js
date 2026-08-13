@@ -65,6 +65,26 @@ async function ensureQuestionDifficultyColumn(db) {
     console.log('✅ Added column questions.difficulty (auto-migration).');
 }
 
+/**
+ * Ensures a questions.<column> exists (idempotent). Used for the rich-text HTML
+ * siblings that may be missing on databases built before they were introduced.
+ */
+async function ensureQuestionColumn(db, columnName, definitionSql) {
+    const [rows] = await db.query(
+        `
+        SELECT COUNT(*) AS cnt
+        FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'questions'
+          AND COLUMN_NAME = :columnName
+        `,
+        { replacements: { columnName }, raw: true }
+    );
+    if (Number(rows?.[0]?.cnt ?? 0) > 0) return;
+    await db.query(`ALTER TABLE questions ADD COLUMN ${columnName} ${definitionSql}`);
+    console.log(`✅ Added column questions.${columnName} (auto-migration).`);
+}
+
 // Test the connection - only connect when explicitly called, not at module load
 // This prevents database connection during Netlify build
 const connectDB = async () => {
@@ -83,6 +103,12 @@ const connectDB = async () => {
                     '❌ Could not ensure questions.difficulty column:',
                     e.message
                 );
+            }
+            try {
+                // Rich answer HTML (mirror of question_html / solution_html).
+                await ensureQuestionColumn(db, 'answer_html', 'LONGTEXT NULL');
+            } catch (e) {
+                console.error('❌ Could not ensure questions.answer_html column:', e.message);
             }
             await db.sync();
             console.log('✅ Models synced successfully.');
