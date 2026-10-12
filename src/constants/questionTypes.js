@@ -47,7 +47,7 @@ const TYPE_LANGUAGES = {
   complete_lines: ['gujarati', 'hindi', 'sanskrit'],
   synonyms: ['gujarati', 'hindi', 'sanskrit'],
   antonyms: ['gujarati', 'hindi', 'sanskrit'],
-  translate: ['sanskrit'],
+  translate: ['sanskrit', 'hindi', 'gujarati', 'english'],
 };
 
 module.exports = {
